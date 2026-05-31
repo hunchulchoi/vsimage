@@ -121,8 +121,11 @@
                 viewMode: 1,
                 background: false,
                 responsive: true,
+                autoCrop: false, // Clean preview on startup, crop overlay appears only when dragging or selecting presets
                 ready() {
-                    updateResizeInputsFromCrop();
+                    if (cropper.cropped) {
+                        updateResizeInputsFromCrop();
+                    }
                 },
                 crop(event) {
                     updateResizeInputsFromCrop();
@@ -144,6 +147,11 @@
         btn.addEventListener('click', () => {
             presetButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+
+            // Activate crop overlay box when preset is selected
+            if (cropper) {
+                cropper.crop();
+            }
 
             isCircular = btn.dataset.circle === 'true';
 
@@ -219,6 +227,17 @@
         if (targetWidth > 0 && targetHeight > 0) {
             // Push current source to undo stack before mutation
             undoStack.push(imageEl.src);
+
+            // If no crop box is active, temporarily select the entire image bounds to get a clean full-image resize!
+            if (!cropper.cropped) {
+                cropper.crop();
+                cropper.setData({
+                    x: 0,
+                    y: 0,
+                    width: originalWidth,
+                    height: originalHeight
+                });
+            }
 
             // Export cropped & resized image to base64
             let canvas = cropper.getCroppedCanvas({
@@ -303,6 +322,17 @@
             const quality = parseFloat(rngQuality.value) / 100;
             const targetWidth = parseInt(txtWidth.value, 10) || originalWidth;
             const targetHeight = parseInt(txtHeight.value, 10) || originalHeight;
+
+            // If no crop box is active, temporarily select the entire image bounds to get a clean full-image resize!
+            if (!cropper.cropped) {
+                cropper.crop();
+                cropper.setData({
+                    x: 0,
+                    y: 0,
+                    width: originalWidth,
+                    height: originalHeight
+                });
+            }
 
             // Apply cropping with resizing
             let canvas = cropper.getCroppedCanvas({
