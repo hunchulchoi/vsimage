@@ -19,6 +19,8 @@
     let originalHeight = 0;
     let aspectRatio = 0;
     let isCircular = false;
+    let undoStack = [];
+    let initialImageSrc = '';
 
     const lblDimensions = document.getElementById('lblDimensions');
     const lblFilename = document.getElementById('lblFilename');
@@ -90,6 +92,9 @@
     }
 
     function initEditor(src) {
+        if (!initialImageSrc) {
+            initialImageSrc = src;
+        }
         imageEl.src = src;
         
         imageEl.onload = () => {
@@ -178,7 +183,12 @@
     document.getElementById('btnRotateRight').addEventListener('click', () => cropper && cropper.rotate(90));
     document.getElementById('btnReset').addEventListener('click', () => {
         if (cropper) {
-            cropper.reset();
+            if (imageEl.src !== initialImageSrc) {
+                undoStack.push(imageEl.src);
+                initEditor(initialImageSrc);
+            } else {
+                cropper.reset();
+            }
             isCircular = false;
             presetButtons.forEach(b => b.classList.remove('active'));
             document.querySelector('#cropPresets button[data-ratio="NaN"]').classList.add('active');
@@ -201,19 +211,40 @@
         qualityVal.textContent = rngQuality.value;
     });
 
-    // Apply manual resize dimension changes back to the Cropper box
+    // Apply manual resize dimension changes (destructively crops and resizes on screen)
     btnApplyResize.addEventListener('click', () => {
         if (!cropper) return;
         const targetWidth = parseInt(txtWidth.value, 10);
         const targetHeight = parseInt(txtHeight.value, 10);
         if (targetWidth > 0 && targetHeight > 0) {
-            const currentData = cropper.getData();
-            cropper.setData({
+            // Push current source to undo stack before mutation
+            undoStack.push(imageEl.src);
+
+            // Export cropped & resized image to base64
+            let canvas = cropper.getCroppedCanvas({
                 width: targetWidth,
                 height: targetHeight,
-                x: currentData.x,
-                y: currentData.y
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
             });
+
+            // Apply circular mask if circle crop is active
+            if (isCircular) {
+                const circleCanvas = document.createElement('canvas');
+                circleCanvas.width = canvas.width;
+                circleCanvas.height = canvas.height;
+                const ctx = circleCanvas.getContext('2d');
+                
+                ctx.beginPath();
+                ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(canvas, 0, 0);
+                canvas = circleCanvas;
+            }
+
+            const newSrc = canvas.toDataURL();
+            initEditor(newSrc);
+            vscode.postMessage({ command: 'show-toast', text: 'Resize applied. Press Ctrl+Z to undo.' });
         }
     });
 
@@ -224,13 +255,27 @@
     btnSave.addEventListener('click', () => triggerSave('save'));
     btnExport.addEventListener('click', () => triggerSave('export'));
 
-    // Global keyboard listener for Save (Cmd+S / Ctrl+S)
+    // Global keyboard listener for Save (Cmd+S / Ctrl+S) and Undo (Cmd+Z / Ctrl+Z)
     document.addEventListener('keydown', (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 's') {
             e.preventDefault();
             triggerSave('save');
         }
+        if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+            e.preventDefault();
+            performUndo();
+        }
     });
+
+    function performUndo() {
+        if (undoStack.length > 0) {
+            const prevSrc = undoStack.pop();
+            initEditor(prevSrc);
+            vscode.postMessage({ command: 'show-toast', text: 'Undo successful' });
+        } else {
+            vscode.postMessage({ command: 'show-toast', text: 'Nothing to undo' });
+        }
+    }
 
     function triggerSave(type) {
         if (window.editorApi && window.editorApi.getCanvasBlob) {
