@@ -8,6 +8,7 @@
     const txtHeight = document.getElementById('txtHeight');
     const chkLockRatio = document.getElementById('chkLockRatio');
     const btnApplyResize = document.getElementById('btnApplyResize');
+    const btnApplyCrop = document.getElementById('btnApplyCrop');
 
     const selFormat = document.getElementById('selFormat');
     const qualitySection = document.getElementById('qualitySection');
@@ -178,6 +179,9 @@
         presetButtons.forEach(btn => {
             btn.disabled = !isEnabled;
         });
+        if (btnApplyCrop) {
+            btnApplyCrop.disabled = !isEnabled;
+        }
     }
 
     // Crop Toggle Checkbox listener
@@ -348,6 +352,47 @@
             initEditor(newSrc);
             vscode.postMessage({ command: 'show-toast', text: 'Resize applied. Press Ctrl+Z to undo.' });
         }
+    });
+
+    // Apply 1:1 original crop selections (destructively crops on screen keeping original selection pixels scale)
+    btnApplyCrop.addEventListener('click', () => {
+        if (!cropper) return;
+        if (!chkEnableCrop.checked || !cropper.cropped) {
+            vscode.postMessage({ command: 'show-toast', text: 'Please enable crop and select a region first.' });
+            return;
+        }
+
+        // Push current source to undo stack before mutation
+        undoStack.push(imageEl.src);
+
+        // Get cropped canvas at original selection pixel bounds
+        let canvas = cropper.getCroppedCanvas({
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high'
+        });
+
+        // Apply circular mask if circle crop is active
+        if (isCircular) {
+            const circleCanvas = document.createElement('canvas');
+            circleCanvas.width = canvas.width;
+            circleCanvas.height = canvas.height;
+            const ctx = circleCanvas.getContext('2d');
+            
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(canvas, 0, 0);
+            canvas = circleCanvas;
+        }
+
+        const newSrc = canvas.toDataURL();
+        initEditor(newSrc);
+        
+        // Reset crop mode checkbox
+        chkEnableCrop.checked = false;
+        syncCropPresetUI();
+
+        vscode.postMessage({ command: 'show-toast', text: 'Crop applied. Press Ctrl+Z to undo.' });
     });
 
     // Hook up saving triggers
@@ -598,6 +643,15 @@
                 txtHeight.value = originalHeight;
                 isCircular = false;
                 presetButtons.forEach(b => b.classList.remove('active'));
+            }
+            return;
+        }
+
+        // Enter: apply crop selection if crop mode is active
+        if (e.key === 'Enter') {
+            if (chkEnableCrop.checked && cropper && cropper.cropped) {
+                e.preventDefault();
+                btnApplyCrop.click();
             }
             return;
         }

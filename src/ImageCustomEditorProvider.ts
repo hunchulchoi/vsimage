@@ -192,13 +192,14 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                     <label for="chkEnableCrop" style="font-size: 0.75rem; user-select: none; cursor: pointer; color: #ccc;">Enable</label>
                                 </div>
                             </div>
-                            <div class="btn-grid" id="cropPresets">
+                            <div class="btn-grid" id="cropPresets" style="margin-bottom: 8px;">
                                 <button class="btn-secondary" data-ratio="NaN">Free</button>
                                 <button class="btn-secondary" data-ratio="1">1:1</button>
                                 <button class="btn-secondary" data-ratio="1.77777777778">16:9</button>
                                 <button class="btn-secondary" data-ratio="1.33333333333">4:3</button>
                                 <button class="btn-secondary" data-circle="true">Circle</button>
                             </div>
+                            <button class="btn-accent" id="btnApplyCrop">Apply Crop</button>
                         </div>
 
                         <div class="section-card">
