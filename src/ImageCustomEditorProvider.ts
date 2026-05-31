@@ -164,7 +164,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         </div>
                         <div class="floating-toolbar" id="toolbar" style="display: none;">
                             <button class="tb-btn" id="btnZoomOut" title="Zoom Out (-)">-</button>
-                            <span class="zoom-indicator" id="lblZoomPercent">100%</span>
+                            <span class="zoom-indicator" id="lblZoomPercent">--%</span>
                             <button class="tb-btn" id="btnZoomIn" title="Zoom In (+)">+</button>
                             <div class="tb-divider"></div>
                             <button class="tb-btn" id="btnRotateLeft" title="Rotate Left ([)">⟲</button>
