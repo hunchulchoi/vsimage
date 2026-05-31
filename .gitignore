@@ -2,5 +2,6 @@ node_modules/
 dist/
 out/
 .superpowers/
+.vscode-test/
 .DS_Store
 *.vsix

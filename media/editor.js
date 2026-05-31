@@ -1,5 +1,6 @@
 (function() {
     const vscode = acquireVsCodeApi();
+    const isDocumentEditor = !!window.__vsimageDocumentEditor;
     const imageEl = document.getElementById('image');
     const sidebar = document.getElementById('sidebar');
     const toolbar = document.getElementById('toolbar');
@@ -28,11 +29,25 @@
     let undoStack = [];
     let initialImageSrc = '';
     let isEyedropperActive = false;
+    let isColorPickerMode = false;
+    let isOptionPressed = false;
+    let colorPickerCanvas = null;
+    let colorPickerCtx = null;
+    let lastPickerPreview = '';
     let eraseTargetBounds = null;
     let eyedropperCanvas = null;
     let eyedropperCtx = null;
     let lastSampledColor = null;
+    let initialFitRatio = 1;
     const eyedropperTooltip = document.getElementById('eyedropperTooltip');
+    const colorPickerTooltip = document.getElementById('colorPickerTooltip');
+    const colorPickerSwatch = document.getElementById('colorPickerSwatch');
+    const colorPickerPreview = document.getElementById('colorPickerPreview');
+    const colorModal = document.getElementById('colorModal');
+    const colorModalBackdrop = document.getElementById('colorModalBackdrop');
+    const colorModalClose = document.getElementById('colorModalClose');
+    const colorModalSwatch = document.getElementById('colorModalSwatch');
+    const colorFormatList = document.getElementById('colorFormatList');
 
     const lblDimensions = document.getElementById('lblDimensions');
     const lblFilename = document.getElementById('lblFilename');
@@ -46,42 +61,195 @@
     const contextMenu = document.getElementById('contextMenu');
     const shortcutOverlay = document.getElementById('shortcutOverlay');
 
+    function notifyDocumentChanged(label) {
+        if (!isDocumentEditor) {
+            return;
+        }
+        vscode.postMessage({ command: 'document-changed', label: label || 'Edit' });
+    }
+
+    function pushUndoSnapshot() {
+        if (!cropper) {
+            return;
+        }
+
+        if (!chkEnableCrop.checked) {
+            cropper.crop();
+            cropper.setData({
+                x: 0,
+                y: 0,
+                width: originalWidth,
+                height: originalHeight
+            });
+        }
+
+        let canvas = cropper.getCroppedCanvas({
+            width: originalWidth,
+            height: originalHeight,
+            imageSmoothingEnabled: true,
+            imageSmoothingQuality: 'high'
+        });
+
+        if (isCircular) {
+            const circleCanvas = document.createElement('canvas');
+            circleCanvas.width = canvas.width;
+            circleCanvas.height = canvas.height;
+            const ctx = circleCanvas.getContext('2d');
+
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(canvas, 0, 0);
+            canvas = circleCanvas;
+        }
+
+        undoStack.push(canvas.toDataURL());
+    }
+
+    function markTransformEdit(label) {
+        pushUndoSnapshot();
+        notifyDocumentChanged(label);
+    }
+
+    function respondWithImageData(requestId) {
+        if (!window.editorApi || !window.editorApi.getCanvasBlob) {
+            vscode.postMessage({ command: 'image-data-response', requestId, arrayBuffer: null, mimeType: 'image/png' });
+            return;
+        }
+
+        window.editorApi.getCanvasBlob((blob) => {
+            if (!blob) {
+                vscode.postMessage({ command: 'image-data-response', requestId, arrayBuffer: null, mimeType: 'image/png' });
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                vscode.postMessage({
+                    command: 'image-data-response',
+                    requestId,
+                    arrayBuffer: reader.result,
+                    mimeType: blob.type
+                });
+            };
+            reader.readAsArrayBuffer(blob);
+        });
+    }
+
+    function revertToSource(src, filename) {
+        undoStack = [];
+        endEyedropper();
+        endColorPickerMode();
+        hideColorModal();
+        invalidateColorPickerCanvas();
+        initialImageSrc = src;
+        if (filename && lblFilename) {
+            lblFilename.textContent = filename;
+        }
+        initEditor(src, { preserveInitialSrc: true });
+        vscode.postMessage({ command: 'show-toast', text: 'Reverted to last saved version.' });
+    }
+
+    window.addEventListener('message', (event) => {
+        const message = event.data;
+        switch (message.command) {
+            case 'request-image-data':
+                respondWithImageData(message.requestId);
+                break;
+            case 'revert-document':
+                revertToSource(message.src, message.filename);
+                break;
+            case 'perform-undo':
+                performUndo({ fromHost: true });
+                break;
+        }
+    });
+
     // Rulers & scroll viewport
     const rulerH = document.getElementById('rulerH');
     const rulerV = document.getElementById('rulerV');
     const canvasScrollArea = document.getElementById('canvasScrollArea');
+    const canvasScrollContent = document.getElementById('canvasScrollContent');
+    const imageContainer = document.getElementById('imageContainer');
     const RULER_SIZE = 20; // px — must match CSS --ruler-size
+    const CANVAS_PADDING = 20; // px — must match .canvas-scroll-content padding
+    let expandingContainer = false;
+    let expandContainerFrame = null;
+    let isSpacePressed = false;
+    let isPanning = false;
+    let lastPanClientX = 0;
+    let lastPanClientY = 0;
+
+    function scheduleExpandContainerToCanvas() {
+        if (expandContainerFrame !== null) {
+            cancelAnimationFrame(expandContainerFrame);
+        }
+        expandContainerFrame = requestAnimationFrame(() => {
+            expandContainerFrame = null;
+            expandContainerToCanvas();
+        });
+    }
 
     /** Expand the Cropper.js container to the actual zoomed canvas size so the
      *  scroll area shows the full image. Called after every zoom/ready event. */
     function expandContainerToCanvas() {
-        if (!cropper) return;
-        const cd = cropper.getCanvasData();
-        if (!cd || !cd.width) return;
+        if (!cropper || expandingContainer || isPanning) {
+            return;
+        }
+
+        const imgData = cropper.getImageData();
+        if (!imgData || !imgData.width) {
+            return;
+        }
+
         const cropperContEl = document.querySelector('.cropper-container');
-        const imgContainerEl = document.querySelector('.image-container');
-        if (!cropperContEl || !imgContainerEl) return;
+        const imgContainerEl = imageContainer || document.querySelector('.image-container');
+        if (!cropperContEl || !imgContainerEl || !canvasScrollContent || !canvasScrollArea) {
+            return;
+        }
 
-        const w = Math.ceil(cd.width);
-        const h = Math.ceil(cd.height);
+        expandingContainer = true;
+        try {
+            resetCanvasOrigin();
 
-        // Size the cropper container to the canvas
-        cropperContEl.style.width    = w + 'px';
-        cropperContEl.style.height   = h + 'px';
-        cropperContEl.style.overflow = 'visible'; // let canvas show outside box during transitions
+            const w = Math.ceil(imgData.width);
+            const h = Math.ceil(imgData.height);
+            const viewportW = canvasScrollArea.clientWidth;
+            const viewportH = canvasScrollArea.clientHeight;
+            const totalW = w + (CANVAS_PADDING * 2);
+            const totalH = h + (CANVAS_PADDING * 2);
+            const contentW = Math.max(viewportW, totalW);
+            const contentH = Math.max(viewportH, totalH);
 
-        // Resize the image-container wrapper too (drives flex scroll area)
-        imgContainerEl.style.width  = w + 'px';
-        imgContainerEl.style.height = h + 'px';
+            cropperContEl.style.width = w + 'px';
+            cropperContEl.style.height = h + 'px';
+            cropperContEl.style.overflow = 'hidden';
 
-        // Shift the canvas to (0,0) so the full zoomed image is visible
-        const dx = -cd.left;
-        const dy = -cd.top;
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-            cropper.move(dx, dy);
+            imgContainerEl.style.width = w + 'px';
+            imgContainerEl.style.height = h + 'px';
+            imgContainerEl.style.marginLeft = contentW > totalW ? Math.floor((contentW - totalW) / 2) + 'px' : '0';
+            imgContainerEl.style.marginTop = contentH > totalH ? Math.floor((contentH - totalH) / 2) + 'px' : '0';
+
+            canvasScrollContent.style.width = contentW + 'px';
+            canvasScrollContent.style.height = contentH + 'px';
+        } finally {
+            expandingContainer = false;
         }
 
         drawRulers();
+    }
+
+    function resetCanvasOrigin() {
+        if (!cropper) {
+            return;
+        }
+        const cd = cropper.getCanvasData();
+        if (!cd) {
+            return;
+        }
+        if (Math.abs(cd.left) > 0.5 || Math.abs(cd.top) > 0.5) {
+            cropper.move(-cd.left, -cd.top);
+        }
     }
 
     function drawRulers() {
@@ -229,6 +397,173 @@
         if (shortcutOverlay) shortcutOverlay.style.display = 'none';
     });
 
+    // Redraw rulers while panning/scrolling (RAF-throttled) — set up once
+    let rulerRafId = null;
+    function scheduleRulerRedraw() {
+        if (rulerRafId !== null) {
+            return;
+        }
+        rulerRafId = requestAnimationFrame(() => {
+            drawRulers();
+            rulerRafId = null;
+        });
+    }
+
+    if (canvasScrollArea) {
+        canvasScrollArea.addEventListener('scroll', scheduleRulerRedraw);
+
+        canvasScrollArea.addEventListener('wheel', (e) => {
+            if (!cropper) {
+                return;
+            }
+
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                cropper.zoom(e.deltaY < 0 ? 0.1 : -0.1);
+                return;
+            }
+
+            const canScrollX = canvasScrollArea.scrollWidth > canvasScrollArea.clientWidth + 1;
+            const canScrollY = canvasScrollArea.scrollHeight > canvasScrollArea.clientHeight + 1;
+            if (!canScrollX && !canScrollY) {
+                return;
+            }
+
+            e.preventDefault();
+            canvasScrollArea.scrollLeft += e.deltaX;
+            canvasScrollArea.scrollTop += e.deltaY;
+            scheduleRulerRedraw();
+        }, { passive: false, capture: true });
+    }
+
+    // Space + drag pan (hand tool)
+    function isTypingTarget(el) {
+        return el && (
+            el.tagName === 'INPUT' ||
+            el.tagName === 'SELECT' ||
+            el.tagName === 'TEXTAREA' ||
+            el.isContentEditable
+        );
+    }
+
+    function isPanTargetVisible() {
+        return workspace && workspace.style.display !== 'none';
+    }
+
+    function setPanMode(active) {
+        if (canvasScrollArea) {
+            canvasScrollArea.classList.toggle('pan-mode', active);
+        }
+        if (!active && canvasScrollArea) {
+            canvasScrollArea.classList.remove('pan-grabbing');
+        }
+        if (cropper) {
+            cropper.setDragMode(active ? 'none' : 'crop');
+        }
+    }
+
+    function endPanning() {
+        const wasPanning = isPanning;
+        isPanning = false;
+        if (canvasScrollArea) {
+            canvasScrollArea.classList.remove('pan-grabbing');
+        }
+        if (wasPanning) {
+            scheduleExpandContainerToCanvas();
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.code !== 'Space' || e.repeat || isTypingTarget(document.activeElement)) {
+            return;
+        }
+        if (!isPanTargetVisible()) {
+            return;
+        }
+        e.preventDefault();
+        isSpacePressed = true;
+        setPanMode(true);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.code !== 'Space') {
+            return;
+        }
+        isSpacePressed = false;
+        endPanning();
+        setPanMode(false);
+        scheduleExpandContainerToCanvas();
+    });
+
+    window.addEventListener('blur', () => {
+        isSpacePressed = false;
+        endPanning();
+        setPanMode(false);
+        scheduleExpandContainerToCanvas();
+    });
+
+    function onPanMouseDown(e) {
+        if (!isSpacePressed || !canvasScrollArea || e.button !== 0 || isEyedropperActive || isColorPickerMode) {
+            return;
+        }
+        if (!isPanTargetVisible()) {
+            return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        expandContainerToCanvas();
+        isPanning = true;
+        lastPanClientX = e.clientX;
+        lastPanClientY = e.clientY;
+        canvasScrollArea.classList.add('pan-grabbing');
+    }
+
+    function onPanMouseMove(e) {
+        if (!isPanning || !canvasScrollArea) {
+            return;
+        }
+        e.preventDefault();
+
+        const dx = e.clientX - lastPanClientX;
+        const dy = e.clientY - lastPanClientY;
+        lastPanClientX = e.clientX;
+        lastPanClientY = e.clientY;
+
+        canvasScrollArea.scrollLeft -= dx;
+        canvasScrollArea.scrollTop -= dy;
+        scheduleRulerRedraw();
+    }
+
+    document.addEventListener('mousedown', (e) => {
+        if (!isSpacePressed || !canvasScrollArea || e.button !== 0 || isEyedropperActive || isColorPickerMode) {
+            return;
+        }
+        if (!isPanTargetVisible()) {
+            return;
+        }
+        if (e.target.closest('.floating-toolbar')) {
+            return;
+        }
+        if (!canvasScrollArea.contains(e.target)) {
+            return;
+        }
+        onPanMouseDown(e);
+    }, true);
+
+    document.addEventListener('mousemove', onPanMouseMove);
+    document.addEventListener('mouseup', endPanning);
+
+    if (workspace) {
+        const rulerResizeObserver = new ResizeObserver(() => {
+            scheduleExpandContainerToCanvas();
+        });
+        rulerResizeObserver.observe(workspace);
+        if (canvasScrollArea) {
+            rulerResizeObserver.observe(canvasScrollArea);
+        }
+    }
+
     // Mode dispatcher
     if (!imageEl || !imageEl.getAttribute('src') || imageEl.getAttribute('src') === '') {
         // Empty editor launcher mode
@@ -289,8 +624,10 @@
         reader.readAsDataURL(file);
     }
 
-    function initEditor(src) {
-        if (!initialImageSrc) {
+    function initEditor(src, options) {
+        const preserveInitialSrc = options && options.preserveInitialSrc;
+        invalidateColorPickerCanvas();
+        if (!initialImageSrc || preserveInitialSrc) {
             initialImageSrc = src;
         }
         imageEl.src = src;
@@ -322,57 +659,51 @@
             // Create Cropper
             cropper = new Cropper(imageEl, {
                 aspectRatio: NaN,
-                viewMode: 1,
+                viewMode: 0,
                 background: false,
-                responsive: true,
-                autoCrop: false, // Clean preview on startup, crop overlay appears only when dragging or selecting presets
+                responsive: false,
+                autoCrop: false,
+                zoomOnWheel: false,
                 ready() {
+                    if (canvasScrollArea) {
+                        canvasScrollArea.scrollLeft = 0;
+                        canvasScrollArea.scrollTop = 0;
+                        const availW = Math.max(1, canvasScrollArea.clientWidth - (CANVAS_PADDING * 2));
+                        const availH = Math.max(1, canvasScrollArea.clientHeight - (CANVAS_PADDING * 2));
+                        const fitRatio = Math.min(availW / originalWidth, availH / originalHeight, 1);
+                        if (fitRatio < 1) {
+                            cropper.zoomTo(fitRatio);
+                        }
+                    }
                     updateZoomIndicator();
-                    expandContainerToCanvas();
+                    scheduleExpandContainerToCanvas();
+                    requestAnimationFrame(() => {
+                        scheduleExpandContainerToCanvas();
+                        captureInitialFitRatio();
+                    });
+                    if (isSpacePressed) {
+                        cropper.setDragMode('none');
+                    }
                     if (cropper.cropped) {
                         updateResizeInputsFromCrop();
                     }
                 },
-                crop(event) {
-                    // If user manually draws crop area, auto check the Enable Crop checkbox
+                crop() {
                     if (cropper && cropper.cropped && !chkEnableCrop.checked) {
                         chkEnableCrop.checked = true;
                         syncCropPresetUI();
-                        // Reset presets visual status to Free
                         presetButtons.forEach(b => b.classList.remove('active'));
                         const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
                         if (freeBtn) freeBtn.classList.add('active');
                     }
                     updateResizeInputsFromCrop();
                 },
-                zoom(event) {
-                    // Update indicator + expand container after zoom finishes
-                    setTimeout(() => {
-                        updateZoomIndicator();
-                        expandContainerToCanvas();
-                    }, 0);
+                zoom() {
+                    updateZoomIndicator();
+                    scheduleExpandContainerToCanvas();
+                    requestAnimationFrame(() => scheduleExpandContainerToCanvas());
                 }
             });
-
-            // Redraw rulers while panning (RAF-throttled) — listen on scroll area
-            let _rulerRafId = null;
-            if (canvasScrollArea) {
-                canvasScrollArea.addEventListener('mousemove', () => {
-                    if (_rulerRafId) return;
-                    _rulerRafId = requestAnimationFrame(() => { drawRulers(); _rulerRafId = null; });
-                });
-                // Redraw rulers when user scrolls the canvas viewport
-                canvasScrollArea.addEventListener('scroll', () => {
-                    if (_rulerRafId) return;
-                    _rulerRafId = requestAnimationFrame(() => { drawRulers(); _rulerRafId = null; });
-                });
-            }
-
-            // Redraw rulers when workspace grid resizes
-            if (!window._rulerResizeObserver && workspace) {
-                window._rulerResizeObserver = new ResizeObserver(() => { setTimeout(drawRulers, 0); });
-                window._rulerResizeObserver.observe(workspace);
-            }
         };
     }
 
@@ -392,8 +723,39 @@
         }
     }
 
+    function captureInitialFitRatio() {
+        if (!cropper) {
+            return;
+        }
+        const data = cropper.getImageData();
+        if (data && data.naturalWidth) {
+            initialFitRatio = data.width / data.naturalWidth;
+        }
+    }
+
+    function toggleZoomView() {
+        if (!cropper) {
+            return;
+        }
+
+        const data = cropper.getImageData();
+        if (!data || !data.naturalWidth) {
+            return;
+        }
+
+        const currentRatio = data.width / data.naturalWidth;
+        const at100Percent = Math.abs(currentRatio - 1) < 0.005;
+
+        cropper.zoomTo(at100Percent ? initialFitRatio : 1);
+        scheduleExpandContainerToCanvas();
+        updateZoomIndicator();
+    }
+
     function syncCropPresetUI() {
         const isEnabled = chkEnableCrop.checked;
+        if (workspace) {
+            workspace.classList.toggle('crop-active', isEnabled);
+        }
         presetButtons.forEach(btn => {
             btn.disabled = !isEnabled;
         });
@@ -481,47 +843,43 @@
     document.getElementById('btnZoomIn').addEventListener('click', () => {
         if (cropper) {
             cropper.zoom(0.1);
-            setTimeout(updateZoomIndicator, 0);
         }
     });
     document.getElementById('btnZoomOut').addEventListener('click', () => {
         if (cropper) {
             cropper.zoom(-0.1);
-            setTimeout(updateZoomIndicator, 0);
         }
     });
-    document.getElementById('btnRotateLeft').addEventListener('click', () => cropper && cropper.rotate(-90));
-    document.getElementById('btnRotateRight').addEventListener('click', () => cropper && cropper.rotate(90));
+    document.getElementById('btnRotateLeft').addEventListener('click', () => {
+        if (cropper) {
+            markTransformEdit('Rotate');
+            cropper.rotate(-90);
+            scheduleExpandContainerToCanvas();
+        }
+    });
+    document.getElementById('btnRotateRight').addEventListener('click', () => {
+        if (cropper) {
+            markTransformEdit('Rotate');
+            cropper.rotate(90);
+            scheduleExpandContainerToCanvas();
+        }
+    });
     document.getElementById('btnFlipH').addEventListener('click', () => {
         if (cropper) {
+            markTransformEdit('Flip Horizontal');
             scaleX = -scaleX;
             cropper.scaleX(scaleX);
         }
     });
     document.getElementById('btnFlipV').addEventListener('click', () => {
         if (cropper) {
+            markTransformEdit('Flip Vertical');
             scaleY = -scaleY;
             cropper.scaleY(scaleY);
         }
     });
     document.getElementById('btnReset').addEventListener('click', () => {
-        if (cropper) {
-            scaleX = 1;
-            scaleY = 1;
-            if (imageEl.src !== initialImageSrc) {
-                undoStack.push(imageEl.src);
-                initEditor(initialImageSrc);
-            } else {
-                cropper.reset();
-            }
-            isCircular = false;
-            chkEnableCrop.checked = false;
-            syncCropPresetUI();
-            presetButtons.forEach(b => b.classList.remove('active'));
-            const face = document.querySelector('.cropper-face');
-            if (face) face.style.borderRadius = '0';
-            setTimeout(updateZoomIndicator, 50);
-        }
+        toggleZoomView();
     });
 
     // Format changes display quality slider
@@ -582,6 +940,7 @@
 
             const newSrc = canvas.toDataURL();
             initEditor(newSrc);
+            notifyDocumentChanged('Resize');
             vscode.postMessage({ command: 'show-toast', text: 'Resize applied. Press Ctrl+Z to undo.' });
         }
     });
@@ -624,6 +983,7 @@
         chkEnableCrop.checked = false;
         syncCropPresetUI();
 
+        notifyDocumentChanged('Crop');
         vscode.postMessage({ command: 'show-toast', text: 'Crop applied. Press Ctrl+Z to undo.' });
     });
 
@@ -656,6 +1016,361 @@
         });
     }
 
+    // ── Color Picker (Option/Alt key) ──────────────────────────────────────
+
+    function toHexByte(n) {
+        return n.toString(16).padStart(2, '0').toUpperCase();
+    }
+
+    function rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        let h = 0;
+        let s = 0;
+        const l = (max + min) / 2;
+
+        if (max !== min) {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                case g: h = ((b - r) / d + 2) / 6; break;
+                case b: h = ((r - g) / d + 4) / 6; break;
+            }
+        }
+
+        return {
+            h: Math.round(h * 360),
+            s: Math.round(s * 100),
+            l: Math.round(l * 100)
+        };
+    }
+
+    function rgbToHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const d = max - min;
+        let h = 0;
+
+        if (max !== min) {
+            switch (max) {
+                case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                case g: h = ((b - r) / d + 2) / 6; break;
+                case b: h = ((r - g) / d + 4) / 6; break;
+            }
+        }
+
+        return {
+            h: Math.round(h * 360),
+            s: max === 0 ? 0 : Math.round((d / max) * 100),
+            v: Math.round(max * 100)
+        };
+    }
+
+    function rgbToCmyk(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const k = 1 - Math.max(r, g, b);
+        if (k >= 0.999) {
+            return { c: 0, m: 0, y: 0, k: 100 };
+        }
+        const c = (1 - r - k) / (1 - k);
+        const m = (1 - g - k) / (1 - k);
+        const y = (1 - b - k) / (1 - k);
+        return {
+            c: Math.round(c * 100),
+            m: Math.round(m * 100),
+            y: Math.round(y * 100),
+            k: Math.round(k * 100)
+        };
+    }
+
+    function buildColorFormats(r, g, b, a) {
+        const alpha = a / 255;
+        const hex = a < 255
+            ? `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}${toHexByte(a)}`
+            : `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}`;
+        const hsl = rgbToHsl(r, g, b);
+        const hsv = rgbToHsv(r, g, b);
+        const cmyk = rgbToCmyk(r, g, b);
+
+        return [
+            { label: 'HEX', value: hex },
+            { label: 'RGB', value: `rgb(${r}, ${g}, ${b})` },
+            { label: 'RGBA', value: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})` },
+            { label: 'HSL', value: `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)` },
+            { label: 'HSV', value: `hsv(${hsv.h}, ${hsv.s}%, ${hsv.v}%)` },
+            { label: 'CMYK', value: `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)` }
+        ];
+    }
+
+    function ensureColorPickerCanvas() {
+        if (!cropper || !imageEl) {
+            return false;
+        }
+        if (!colorPickerCanvas || colorPickerCanvas.width !== originalWidth || colorPickerCanvas.height !== originalHeight) {
+            colorPickerCanvas = document.createElement('canvas');
+            colorPickerCanvas.width = originalWidth;
+            colorPickerCanvas.height = originalHeight;
+            colorPickerCtx = colorPickerCanvas.getContext('2d');
+            colorPickerCtx.drawImage(imageEl, 0, 0);
+        }
+        return true;
+    }
+
+    function getImagePointFromEvent(e) {
+        if (!cropper) {
+            return null;
+        }
+
+        const imageData = cropper.getImageData();
+        const rect = cropper.container.getBoundingClientRect();
+        const xInContainer = e.clientX - rect.left;
+        const yInContainer = e.clientY - rect.top;
+        const xInImage = xInContainer - imageData.left;
+        const yInImage = yInContainer - imageData.top;
+
+        const onImage = xInImage >= 0 && xInImage <= imageData.width && yInImage >= 0 && yInImage <= imageData.height;
+        if (!onImage) {
+            return null;
+        }
+
+        const naturalX = Math.round((xInImage / imageData.width) * imageData.naturalWidth);
+        const naturalY = Math.round((yInImage / imageData.height) * imageData.naturalHeight);
+
+        return {
+            x: Math.max(0, Math.min(originalWidth - 1, naturalX)),
+            y: Math.max(0, Math.min(originalHeight - 1, naturalY))
+        };
+    }
+
+    function sampleColorAtEvent(e) {
+        if (!ensureColorPickerCanvas()) {
+            return null;
+        }
+
+        const point = getImagePointFromEvent(e);
+        if (!point) {
+            return null;
+        }
+
+        const pixel = colorPickerCtx.getImageData(point.x, point.y, 1, 1).data;
+        return {
+            r: pixel[0],
+            g: pixel[1],
+            b: pixel[2],
+            a: pixel[3]
+        };
+    }
+
+    function invalidateColorPickerCanvas() {
+        colorPickerCanvas = null;
+        colorPickerCtx = null;
+    }
+
+    function startColorPickerMode() {
+        if (!cropper || isEyedropperActive || !isPanTargetVisible()) {
+            return;
+        }
+        if (isColorPickerMode) {
+            return;
+        }
+
+        isColorPickerMode = true;
+        lastPickerPreview = '';
+        ensureColorPickerCanvas();
+        workspace.classList.add('color-picker-active');
+        if (cropper) {
+            cropper.setDragMode('none');
+        }
+
+        if (colorPickerTooltip) {
+            colorPickerTooltip.style.display = 'flex';
+            colorPickerTooltip.style.left = '-1000px';
+            colorPickerTooltip.style.top = '-1000px';
+        }
+    }
+
+    function endColorPickerMode() {
+        if (!isColorPickerMode) {
+            return;
+        }
+
+        isColorPickerMode = false;
+        lastPickerPreview = '';
+        workspace.classList.remove('color-picker-active');
+
+        if (colorPickerTooltip) {
+            colorPickerTooltip.style.display = 'none';
+        }
+
+        if (cropper && !isSpacePressed) {
+            cropper.setDragMode('crop');
+        } else if (cropper && isSpacePressed) {
+            cropper.setDragMode('none');
+        }
+    }
+
+    function updateColorPickerPreview(e) {
+        if (!isColorPickerMode || !colorPickerTooltip) {
+            return;
+        }
+
+        colorPickerTooltip.style.left = `${e.clientX + 14}px`;
+        colorPickerTooltip.style.top = `${e.clientY + 14}px`;
+
+        const color = sampleColorAtEvent(e);
+        if (!color) {
+            if (colorPickerPreview) {
+                colorPickerPreview.textContent = '—';
+            }
+            if (colorPickerSwatch) {
+                colorPickerSwatch.style.backgroundColor = 'transparent';
+            }
+            return;
+        }
+
+        const formats = buildColorFormats(color.r, color.g, color.b, color.a);
+        const preview = formats[0].value;
+        const cssColor = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+
+        if (preview !== lastPickerPreview) {
+            lastPickerPreview = preview;
+            if (colorPickerPreview) {
+                colorPickerPreview.textContent = preview;
+            }
+            if (colorPickerSwatch) {
+                colorPickerSwatch.style.backgroundColor = cssColor;
+            }
+        }
+    }
+
+    function hideColorModal() {
+        if (colorModal) {
+            colorModal.style.display = 'none';
+        }
+        if (colorFormatList) {
+            colorFormatList.innerHTML = '';
+        }
+    }
+
+    function copyTextToClipboard(text) {
+        return navigator.clipboard.writeText(text).catch(() => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        });
+    }
+
+    function showColorModal(r, g, b, a) {
+        if (!colorModal || !colorFormatList) {
+            return;
+        }
+
+        const cssColor = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+        const formats = buildColorFormats(r, g, b, a);
+
+        if (colorModalSwatch) {
+            colorModalSwatch.style.backgroundColor = cssColor;
+        }
+
+        colorFormatList.innerHTML = '';
+        formats.forEach((fmt) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'color-format-item';
+            btn.innerHTML = `
+                <span class="color-format-label">${fmt.label}</span>
+                <span class="color-format-value">${fmt.value}</span>
+                <span class="color-format-copy">복사</span>
+            `;
+            btn.addEventListener('click', () => {
+                copyTextToClipboard(fmt.value).then(() => {
+                    colorFormatList.querySelectorAll('.color-format-item').forEach((el) => el.classList.remove('copied'));
+                    btn.classList.add('copied');
+                    btn.querySelector('.color-format-copy').textContent = '복사됨';
+                    vscode.postMessage({ command: 'show-toast', text: `${fmt.label} 복사됨: ${fmt.value}` });
+                }).catch(() => {
+                    vscode.postMessage({ command: 'show-toast', text: '클립보드 복사에 실패했습니다.' });
+                });
+            });
+            colorFormatList.appendChild(btn);
+        });
+
+        colorModal.style.display = 'flex';
+    }
+
+    function onColorPickerClick(e) {
+        if (!isColorPickerMode || isEyedropperActive) {
+            return;
+        }
+        if (e.button !== 0) {
+            return;
+        }
+        if (!canvasScrollArea || !canvasScrollArea.contains(e.target)) {
+            return;
+        }
+        if (e.target.closest('.floating-toolbar') || e.target.closest('.color-modal')) {
+            return;
+        }
+
+        const color = sampleColorAtEvent(e);
+        if (!color) {
+            return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+        showColorModal(color.r, color.g, color.b, color.a);
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Alt' || e.repeat || isTypingTarget(document.activeElement)) {
+            return;
+        }
+        if (colorModal && colorModal.style.display === 'flex') {
+            return;
+        }
+        isOptionPressed = true;
+        startColorPickerMode();
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.key !== 'Alt') {
+            return;
+        }
+        isOptionPressed = false;
+        endColorPickerMode();
+    });
+
+    window.addEventListener('blur', () => {
+        isOptionPressed = false;
+        endColorPickerMode();
+    });
+
+    if (workspace) {
+        workspace.addEventListener('mousemove', (e) => {
+            if (isColorPickerMode && !isEyedropperActive) {
+                updateColorPickerPreview(e);
+            }
+        }, true);
+
+        workspace.addEventListener('click', onColorPickerClick, true);
+    }
+
+    if (colorModalClose) {
+        colorModalClose.addEventListener('click', hideColorModal);
+    }
+    if (colorModalBackdrop) {
+        colorModalBackdrop.addEventListener('click', hideColorModal);
+    }
+
     // Selection Erase & Eyedropper Color-Fill Engine
     function endEyedropper() {
         isEyedropperActive = false;
@@ -671,6 +1386,9 @@
         if (face) {
             face.style.backgroundColor = 'transparent';
         }
+        if (isOptionPressed) {
+            startColorPickerMode();
+        }
     }
 
     // Selection Erase & Eyedropper Color-Fill Engine
@@ -683,6 +1401,7 @@
 
         const data = cropper.getData();
         isEyedropperActive = true;
+        endColorPickerMode();
         eraseTargetBounds = data;
         
         // Cache offscreen representation of the image
@@ -829,6 +1548,7 @@
 
         const newSrc = canvas.toDataURL();
         initEditor(newSrc);
+        notifyDocumentChanged(isClickOnImage ? 'Fill Selection' : 'Erase Selection');
 
         // Turn off eyedropper mode
         endEyedropper();
@@ -836,7 +1556,7 @@
         // Reset crop mode checkbox
         chkEnableCrop.checked = false;
         syncCropPresetUI();
-    }, true); // Capture phase is critical to intercept clicks over Cropper overlays! // Capture phase is critical to intercept clicks over Cropper overlays!
+    }, true); // Capture phase is critical to intercept clicks over Cropper overlays!
 
     // Custom Context Menu event listeners
     workspace.addEventListener('contextmenu', (e) => {
@@ -870,6 +1590,7 @@
         e.stopPropagation();
         contextMenu.style.display = 'none';
         if (cropper) {
+            markTransformEdit('Flip Horizontal');
             scaleX = -scaleX;
             cropper.scaleX(scaleX);
         }
@@ -879,6 +1600,7 @@
         e.stopPropagation();
         contextMenu.style.display = 'none';
         if (cropper) {
+            markTransformEdit('Flip Vertical');
             scaleY = -scaleY;
             cropper.scaleY(scaleY);
         }
@@ -893,7 +1615,11 @@
     document.getElementById('ctxUndo').addEventListener('click', (e) => {
         e.stopPropagation();
         contextMenu.style.display = 'none';
-        performUndo();
+        if (isDocumentEditor) {
+            vscode.postMessage({ command: 'undo-request' });
+        } else {
+            performUndo();
+        }
     });
 
     document.getElementById('ctxReset').addEventListener('click', (e) => {
@@ -921,7 +1647,11 @@
             }
             if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
                 e.preventDefault();
-                performUndo();
+                if (isDocumentEditor) {
+                    vscode.postMessage({ command: 'undo-request' });
+                } else {
+                    performUndo();
+                }
             }
             return;
         }
@@ -936,7 +1666,11 @@
         // Undo: Cmd+Z / Ctrl+Z
         if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
             e.preventDefault();
-            performUndo();
+            if (isDocumentEditor) {
+                vscode.postMessage({ command: 'undo-request' });
+            } else {
+                performUndo();
+            }
             return;
         }
 
@@ -961,7 +1695,6 @@
             e.preventDefault();
             if (cropper) {
                 cropper.zoom(0.1);
-                setTimeout(updateZoomIndicator, 0);
             }
             return;
         }
@@ -971,7 +1704,6 @@
             e.preventDefault();
             if (cropper) {
                 cropper.zoom(-0.1);
-                setTimeout(updateZoomIndicator, 0);
             }
             return;
         }
@@ -979,24 +1711,29 @@
         // Rotate Left: [ or Cmd/Ctrl + [
         if (((e.metaKey || e.ctrlKey) && e.key === '[') || e.key === '[') {
             e.preventDefault();
-            if (cropper) cropper.rotate(-90);
+            if (cropper) {
+                markTransformEdit('Rotate');
+                cropper.rotate(-90);
+                scheduleExpandContainerToCanvas();
+            }
             return;
         }
 
         // Rotate Right: ] or Cmd/Ctrl + ]
         if (((e.metaKey || e.ctrlKey) && e.key === ']') || e.key === ']') {
             e.preventDefault();
-            if (cropper) cropper.rotate(90);
+            if (cropper) {
+                markTransformEdit('Rotate');
+                cropper.rotate(90);
+                scheduleExpandContainerToCanvas();
+            }
             return;
         }
 
-        // Reset zoom & selection / Fit screen: Cmd/Ctrl + 0
+        // Toggle 100% ↔ initial fit: Cmd/Ctrl + 0
         if ((e.metaKey || e.ctrlKey) && e.key === '0') {
             e.preventDefault();
-            if (cropper) {
-                cropper.reset();
-                setTimeout(updateZoomIndicator, 50);
-            }
+            toggleZoomView();
             return;
         }
 
@@ -1022,9 +1759,18 @@
             return;
         }
 
-        // Escape: clear selection, cancel eyedropper, or uncheck crop box
+        // Escape: close color modal, clear selection, cancel eyedropper, or uncheck crop box
         if (e.key === 'Escape') {
             e.preventDefault();
+            if (colorModal && colorModal.style.display === 'flex') {
+                hideColorModal();
+                return;
+            }
+            if (isColorPickerMode) {
+                isOptionPressed = false;
+                endColorPickerMode();
+                return;
+            }
             if (isEyedropperActive && eraseTargetBounds) {
                 // Backup current source to undo stack before erase mutation
                 undoStack.push(imageEl.src);
@@ -1051,6 +1797,7 @@
 
                 const newSrc = canvas.toDataURL();
                 initEditor(newSrc);
+                notifyDocumentChanged('Erase Selection');
 
                 endEyedropper();
 
@@ -1083,12 +1830,15 @@
         }
     });
 
-    function performUndo() {
+    function performUndo(options) {
+        const fromHost = options && options.fromHost;
         if (undoStack.length > 0) {
             const prevSrc = undoStack.pop();
             initEditor(prevSrc);
-            vscode.postMessage({ command: 'show-toast', text: 'Undo successful' });
-        } else {
+            if (!fromHost) {
+                vscode.postMessage({ command: 'show-toast', text: 'Undo successful' });
+            }
+        } else if (!fromHost) {
             vscode.postMessage({ command: 'show-toast', text: 'Nothing to undo' });
         }
     }

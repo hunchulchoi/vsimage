@@ -2,8 +2,32 @@
   "name": "vsimage",
   "displayName": "VS Code Image Editor",
   "description": "Premium image editor to crop, resize, and convert images inside VS Code with clipboard paste.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "myside",
+  "author": {
+    "name": "choihunchul"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hunchulchoi/vsimage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hunchulchoi/vsimage/issues"
+  },
+  "homepage": "https://github.com/hunchulchoi/vsimage#readme",
+  "keywords": [
+    "image",
+    "editor",
+    "crop",
+    "resize",
+    "png",
+    "jpeg",
+    "webp",
+    "gif",
+    "eyedropper",
+    "color picker"
+  ],
   "icon": "media/icon.jpg",
   "engines": {
     "vscode": "^1.80.0"
@@ -39,6 +63,9 @@
     "compile": "webpack --mode development",
     "watch": "webpack --mode development --watch",
     "package": "webpack --mode production",
+    "vsix": "vsce package --no-dependencies",
+    "publish:vsce": "vsce publish --no-dependencies",
+    "publish:ovsx": "ovsx publish --no-dependencies",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile",
