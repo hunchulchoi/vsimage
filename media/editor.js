@@ -14,6 +14,9 @@
     const rngQuality = document.getElementById('rngQuality');
     const qualityVal = document.getElementById('qualityVal');
 
+    const chkEnableCrop = document.getElementById('chkEnableCrop');
+    const lblZoomPercent = document.getElementById('lblZoomPercent');
+
     let cropper = null;
     let originalWidth = 0;
     let originalHeight = 0;
@@ -115,6 +118,10 @@
                 cropper.destroy();
             }
 
+            // Uncheck crop checkbox and disable aspect presets visually by default on loading a new image
+            chkEnableCrop.checked = false;
+            syncCropPresetUI();
+
             // Create Cropper
             cropper = new Cropper(imageEl, {
                 aspectRatio: NaN,
@@ -123,12 +130,26 @@
                 responsive: true,
                 autoCrop: false, // Clean preview on startup, crop overlay appears only when dragging or selecting presets
                 ready() {
+                    updateZoomIndicator();
                     if (cropper.cropped) {
                         updateResizeInputsFromCrop();
                     }
                 },
                 crop(event) {
+                    // If user manually draws crop area, auto check the Enable Crop checkbox
+                    if (cropper && cropper.cropped && !chkEnableCrop.checked) {
+                        chkEnableCrop.checked = true;
+                        syncCropPresetUI();
+                        // Reset presets visual status to Free
+                        presetButtons.forEach(b => b.classList.remove('active'));
+                        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
+                        if (freeBtn) freeBtn.classList.add('active');
+                    }
                     updateResizeInputsFromCrop();
+                },
+                zoom(event) {
+                    // Update indicator after zoom finishes processing
+                    setTimeout(updateZoomIndicator, 0);
                 }
             });
         };
@@ -141,14 +162,62 @@
         txtHeight.value = Math.round(data.height);
     }
 
+    function updateZoomIndicator() {
+        if (!cropper) return;
+        const data = cropper.getImageData();
+        if (data && data.naturalWidth) {
+            const percent = Math.round((data.width / data.naturalWidth) * 100);
+            lblZoomPercent.textContent = `${percent}%`;
+        }
+    }
+
+    function syncCropPresetUI() {
+        const isEnabled = chkEnableCrop.checked;
+        presetButtons.forEach(btn => {
+            btn.disabled = !isEnabled;
+        });
+    }
+
+    // Crop Toggle Checkbox listener
+    chkEnableCrop.addEventListener('change', () => {
+        if (chkEnableCrop.checked) {
+            if (cropper) {
+                cropper.crop();
+                // Highlight Free preset by default when crop is checked on
+                presetButtons.forEach(b => b.classList.remove('active'));
+                const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
+                if (freeBtn) freeBtn.classList.add('active');
+                cropper.setAspectRatio(NaN);
+                isCircular = false;
+                const face = document.querySelector('.cropper-face');
+                if (face) face.style.borderRadius = '0';
+                updateResizeInputsFromCrop();
+            }
+        } else {
+            if (cropper) {
+                cropper.clear();
+                // Reset inputs to original dimensions when exiting crop mode
+                txtWidth.value = originalWidth;
+                txtHeight.value = originalHeight;
+            }
+            isCircular = false;
+            presetButtons.forEach(b => b.classList.remove('active'));
+        }
+        syncCropPresetUI();
+    });
+
     // Preset Aspect Ratios
     const presetButtons = document.querySelectorAll('#cropPresets button');
     presetButtons.forEach(btn => {
         btn.addEventListener('click', () => {
+            if (!chkEnableCrop.checked) {
+                chkEnableCrop.checked = true;
+                syncCropPresetUI();
+            }
+
             presetButtons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
-            // Activate crop overlay box when preset is selected
             if (cropper) {
                 cropper.crop();
             }
@@ -185,8 +254,18 @@
     });
 
     // Toolbar zoom / rotate
-    document.getElementById('btnZoomIn').addEventListener('click', () => cropper && cropper.zoom(0.1));
-    document.getElementById('btnZoomOut').addEventListener('click', () => cropper && cropper.zoom(-0.1));
+    document.getElementById('btnZoomIn').addEventListener('click', () => {
+        if (cropper) {
+            cropper.zoom(0.1);
+            setTimeout(updateZoomIndicator, 0);
+        }
+    });
+    document.getElementById('btnZoomOut').addEventListener('click', () => {
+        if (cropper) {
+            cropper.zoom(-0.1);
+            setTimeout(updateZoomIndicator, 0);
+        }
+    });
     document.getElementById('btnRotateLeft').addEventListener('click', () => cropper && cropper.rotate(-90));
     document.getElementById('btnRotateRight').addEventListener('click', () => cropper && cropper.rotate(90));
     document.getElementById('btnReset').addEventListener('click', () => {
@@ -198,10 +277,12 @@
                 cropper.reset();
             }
             isCircular = false;
+            chkEnableCrop.checked = false;
+            syncCropPresetUI();
             presetButtons.forEach(b => b.classList.remove('active'));
-            document.querySelector('#cropPresets button[data-ratio="NaN"]').classList.add('active');
             const face = document.querySelector('.cropper-face');
             if (face) face.style.borderRadius = '0';
+            setTimeout(updateZoomIndicator, 50);
         }
     });
 
@@ -228,8 +309,8 @@
             // Push current source to undo stack before mutation
             undoStack.push(imageEl.src);
 
-            // If no crop box is active, temporarily select the entire image bounds to get a clean full-image resize!
-            if (!cropper.cropped) {
+            // If crop mode is NOT enabled, select the entire image bounds to get a clean full-image resize!
+            if (!chkEnableCrop.checked) {
                 cropper.crop();
                 cropper.setData({
                     x: 0,
@@ -274,15 +355,123 @@
     btnSave.addEventListener('click', () => triggerSave('save'));
     btnExport.addEventListener('click', () => triggerSave('export'));
 
-    // Global keyboard listener for Save (Cmd+S / Ctrl+S) and Undo (Cmd+Z / Ctrl+Z)
+    // Global keyboard listener
     document.addEventListener('keydown', (e) => {
+        // Guard input elements so typing is not hijacked
+        const activeEl = document.activeElement;
+        const isInput = activeEl && (
+            activeEl.tagName === 'INPUT' || 
+            activeEl.tagName === 'SELECT' || 
+            activeEl.tagName === 'TEXTAREA' || 
+            activeEl.isContentEditable
+        );
+
+        if (isInput) {
+            // Still allow Save (Cmd+S) and Undo (Cmd+Z) inside input focus
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                triggerSave('save');
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                e.preventDefault();
+                performUndo();
+            }
+            return;
+        }
+
+        // Save: Cmd+S / Ctrl+S
         if ((e.metaKey || e.ctrlKey) && e.key === 's') {
             e.preventDefault();
             triggerSave('save');
+            return;
         }
+
+        // Undo: Cmd+Z / Ctrl+Z
         if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
             e.preventDefault();
             performUndo();
+            return;
+        }
+
+        // Zoom In: Cmd/Ctrl + = or Cmd/Ctrl + + or simple key +
+        if (((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) || e.key === '+') {
+            e.preventDefault();
+            if (cropper) {
+                cropper.zoom(0.1);
+                setTimeout(updateZoomIndicator, 0);
+            }
+            return;
+        }
+
+        // Zoom Out: Cmd/Ctrl + - or Cmd/Ctrl + _ or simple key -
+        if (((e.metaKey || e.ctrlKey) && (e.key === '-' || e.key === '_')) || e.key === '-') {
+            e.preventDefault();
+            if (cropper) {
+                cropper.zoom(-0.1);
+                setTimeout(updateZoomIndicator, 0);
+            }
+            return;
+        }
+
+        // Rotate Left: [ or Cmd/Ctrl + [
+        if (((e.metaKey || e.ctrlKey) && e.key === '[') || e.key === '[') {
+            e.preventDefault();
+            if (cropper) cropper.rotate(-90);
+            return;
+        }
+
+        // Rotate Right: ] or Cmd/Ctrl + ]
+        if (((e.metaKey || e.ctrlKey) && e.key === ']') || e.key === ']') {
+            e.preventDefault();
+            if (cropper) cropper.rotate(90);
+            return;
+        }
+
+        // Reset zoom & selection / Fit screen: Cmd/Ctrl + 0
+        if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+            e.preventDefault();
+            if (cropper) {
+                cropper.reset();
+                setTimeout(updateZoomIndicator, 50);
+            }
+            return;
+        }
+
+        // Select All (Full image crop selection): Cmd/Ctrl + A
+        if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+            e.preventDefault();
+            if (cropper) {
+                if (!chkEnableCrop.checked) {
+                    chkEnableCrop.checked = true;
+                    syncCropPresetUI();
+                }
+                cropper.crop();
+                cropper.setData({
+                    x: 0,
+                    y: 0,
+                    width: originalWidth,
+                    height: originalHeight
+                });
+                presetButtons.forEach(b => b.classList.remove('active'));
+                const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
+                if (freeBtn) freeBtn.classList.add('active');
+            }
+            return;
+        }
+
+        // Escape: clear selection and uncheck crop box
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            if (cropper) {
+                chkEnableCrop.checked = false;
+                syncCropPresetUI();
+                cropper.clear();
+                txtWidth.value = originalWidth;
+                txtHeight.value = originalHeight;
+                isCircular = false;
+                presetButtons.forEach(b => b.classList.remove('active'));
+            }
+            return;
         }
     });
 
@@ -323,8 +512,8 @@
             const targetWidth = parseInt(txtWidth.value, 10) || originalWidth;
             const targetHeight = parseInt(txtHeight.value, 10) || originalHeight;
 
-            // If no crop box is active, temporarily select the entire image bounds to get a clean full-image resize!
-            if (!cropper.cropped) {
+            // If crop mode is NOT enabled, select the entire image bounds to get a clean full-image resize!
+            if (!chkEnableCrop.checked) {
                 cropper.crop();
                 cropper.setData({
                     x: 0,

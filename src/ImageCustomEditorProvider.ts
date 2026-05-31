@@ -163,11 +163,14 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                             <img id="image" ${imgWebviewUri ? `src="${imgWebviewUri}"` : ''}>
                         </div>
                         <div class="floating-toolbar" id="toolbar" style="display: none;">
-                            <button class="tb-btn" id="btnZoomIn">Zoom In</button>
-                            <button class="tb-btn" id="btnZoomOut">Zoom Out</button>
-                            <button class="tb-btn" id="btnRotateLeft">Rotate Left</button>
-                            <button class="tb-btn" id="btnRotateRight">Rotate Right</button>
-                            <button class="tb-btn" id="btnReset">Reset</button>
+                            <button class="tb-btn" id="btnZoomOut" title="Zoom Out (-)">-</button>
+                            <span class="zoom-indicator" id="lblZoomPercent">100%</span>
+                            <button class="tb-btn" id="btnZoomIn" title="Zoom In (+)">+</button>
+                            <div class="tb-divider"></div>
+                            <button class="tb-btn" id="btnRotateLeft" title="Rotate Left ([)">⟲</button>
+                            <button class="tb-btn" id="btnRotateRight" title="Rotate Right (])">⟳</button>
+                            <div class="tb-divider"></div>
+                            <button class="tb-btn" id="btnReset" title="Reset (Ctrl+0)">Reset</button>
                         </div>
                     </div>
 
@@ -182,9 +185,15 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         </div>
 
                         <div class="section-card">
-                            <div class="section-title">✂️ Crop Presets</div>
+                            <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                                <span>✂️ Crop Presets</span>
+                                <div style="display: flex; align-items: center; gap: 4px; text-transform: none;">
+                                    <input type="checkbox" id="chkEnableCrop" style="margin: 0; cursor: pointer;">
+                                    <label for="chkEnableCrop" style="font-size: 0.75rem; user-select: none; cursor: pointer; color: #ccc;">Enable</label>
+                                </div>
+                            </div>
                             <div class="btn-grid" id="cropPresets">
-                                <button class="btn-secondary active" data-ratio="NaN">Free</button>
+                                <button class="btn-secondary" data-ratio="NaN">Free</button>
                                 <button class="btn-secondary" data-ratio="1">1:1</button>
                                 <button class="btn-secondary" data-ratio="1.77777777778">16:9</button>
                                 <button class="btn-secondary" data-ratio="1.33333333333">4:3</button>

@@ -258,3 +258,38 @@ body, html {
     font-size: 0.8rem;
     color: var(--btn-bg);
 }
+
+/* Zoom Indicator styling */
+.zoom-indicator {
+    padding: 0 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground, #cccccc);
+    min-width: 48px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+/* Toolbar Divider */
+.tb-divider {
+    width: 1px;
+    background-color: rgba(255, 255, 255, 0.15);
+    height: 20px;
+    align-self: center;
+    margin: 0 6px;
+}
+
+/* Disabled secondary button styling */
+.btn-secondary:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background-color: #2a2a2a;
+    color: #666666;
+}
+.btn-secondary:disabled:hover {
+    background-color: #2a2a2a;
+}
+
