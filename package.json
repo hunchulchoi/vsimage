@@ -52,6 +52,103 @@
         "command": "vsimage.openWithEditor",
         "title": "%command.openWithEditor.title%",
         "category": "vsimage"
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "title": "Run vsimage Shortcut",
+        "category": "vsimage"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "save" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "undo" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+c",
+        "mac": "cmd+c",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "copy" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+a",
+        "mac": "cmd+a",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "selectAll" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "c",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "crop" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "m",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "marquee" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "x",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "mosaic" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "w",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "magicWand" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "r",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "rotateRight" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "shift+r",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "rotateLeft" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "shift+=",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "zoomIn" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "-",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "zoomOut" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+0",
+        "mac": "cmd+0",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "fitViewport" }
+      },
+      {
+        "command": "vsimage.runShortcut",
+        "key": "ctrl+1",
+        "mac": "cmd+1",
+        "when": "activeEditor == 'vsimage.editor' || activeCustomEditorId == 'vsimage.editor' || activeWebviewPanelId == 'vsimage.editor'",
+        "args": { "action": "actualPixels" }
       }
     ],
     "submenus": [
@@ -88,7 +185,19 @@
         "displayName": "%customEditor.displayName%",
         "selector": [
           {
-            "filenamePattern": "*.{png,jpg,jpeg,webp,gif}"
+            "filenamePattern": "*.png"
+          },
+          {
+            "filenamePattern": "*.jpg"
+          },
+          {
+            "filenamePattern": "*.jpeg"
+          },
+          {
+            "filenamePattern": "*.webp"
+          },
+          {
+            "filenamePattern": "*.gif"
           }
         ],
         "priority": "default"
@@ -100,11 +209,12 @@
     "compile": "webpack --mode development",
     "watch": "webpack --mode development --watch",
     "package": "webpack --mode production",
-    "vsix": "vsce package --no-dependencies",
+    "vsix": "node -e \"require('fs').mkdirSync('artifacts', { recursive: true })\" && vsce package --no-dependencies --out artifacts/vsimage.vsix",
     "publish:vsce": "vsce publish --no-dependencies",
     "publish:ovsx": "ovsx publish --no-dependencies",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
+    "test:unit": "npm run compile-tests && mocha \"out/src/test/suite/*.test.js\" --ui tdd --ignore out/src/test/suite/extension.test.js",
     "pretest": "npm run compile-tests && npm run compile",
     "test": "node out/src/test/runTest.js"
   },

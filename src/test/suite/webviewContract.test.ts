@@ -198,7 +198,7 @@ suite('Webview contracts', () => {
 
     test('bridges VS Code webview keybindings into editor shortcuts', () => {
         const keybindings = manifest.contributes?.keybindings ?? [];
-        const bridgedActions = ['save', 'undo', 'copy', 'selectAll', 'marquee', 'crop', 'magicWand', 'rotateLeft', 'rotateRight', 'zoomIn', 'zoomOut', 'fitViewport', 'actualPixels'];
+        const bridgedActions = ['save', 'undo', 'copy', 'selectAll', 'marquee', 'crop', 'mosaic', 'magicWand', 'rotateLeft', 'rotateRight', 'zoomIn', 'zoomOut', 'fitViewport', 'actualPixels'];
 
         for (const action of bridgedActions) {
             const binding = keybindings.find(item => item.command === 'vsimage.runShortcut' && (item.args as { action?: string } | undefined)?.action === action);
@@ -211,6 +211,9 @@ suite('Webview contracts', () => {
 
         const marqueeBindings = keybindings.filter(item => item.command === 'vsimage.runShortcut' && (item.args as { action?: string } | undefined)?.action === 'marquee');
         assert.ok(marqueeBindings.some(item => item.key === 'm'));
+
+        const mosaicBindings = keybindings.filter(item => item.command === 'vsimage.runShortcut' && (item.args as { action?: string } | undefined)?.action === 'mosaic');
+        assert.ok(mosaicBindings.some(item => item.key === 'x'));
 
         assert.ok(extension.includes("provider.runShortcut(action)"));
         assert.ok(provider.includes("postMessage({ command: 'run-shortcut', action })"));
