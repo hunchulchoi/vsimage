@@ -427,6 +427,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
         const cropMarqueeLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'cropMarqueeLogic.js')));
         const resizePanelLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'resizePanelLogic.js')));
         const sharpenLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'sharpenLogic.js')));
+        const mosaicLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'mosaicLogic.js')));
         const colorLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'colorLogic.js')));
         const magicWandLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'magicWandLogic.js')));
         const clipboardLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'clipboardLogic.js')));
@@ -489,7 +490,9 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         </div>
                         <div id="zoomLoupePanel" class="zoom-loupe-panel" style="display: none;">
                             <button type="button" id="zoomLoupeDragHandle" class="zoom-loupe-drag-handle" aria-label="Move zoom panel">
-                                <span class="zoom-loupe-drag-mark">+↔</span>
+                                <svg class="zoom-loupe-drag-icon" viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M8 1v4M8 11v4M1 8h4M11 8h4M6.5 2.5 8 1l1.5 1.5M9.5 14.5 8 13l-1.5 1.5M2.5 6.5 1 8l1.5 1.5M14.5 9.5 13 8l1.5-1.5" />
+                                </svg>
                             </button>
                             <span class="zoom-loupe-label" data-i18n="zoomLoupe.label"></span>
                             <canvas id="zoomLoupeCanvas" width="200" height="200"></canvas>
@@ -497,7 +500,9 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         <div class="canvas-toolbar-layer">
                             <div class="floating-toolbar" id="toolbar" style="display: none;">
                                 <button type="button" id="toolbarDragHandle" class="toolbar-drag-handle" aria-label="Move toolbar">
-                                    <span class="toolbar-drag-mark">+↔</span>
+                                    <svg class="toolbar-drag-icon" viewBox="0 0 16 16" aria-hidden="true">
+                                        <path d="M8 1v4M8 11v4M1 8h4M11 8h4M6.5 2.5 8 1l1.5 1.5M9.5 14.5 8 13l-1.5 1.5M2.5 6.5 1 8l1.5 1.5M14.5 9.5 13 8l1.5-1.5" />
+                                    </svg>
                                 </button>
                                 <button class="tb-btn" id="btnZoomOut" data-shortcut="-" data-i18n-title="toolbar.zoomOut">-<span class="ui-shortcut-badge"></span></button>
                                 <span class="zoom-indicator" id="lblZoomPercent">--%</span>
@@ -533,12 +538,35 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                             </div>
                         </div>
 
+                        <div class="section-card section-card-selection">
+                            <div class="section-title" data-i18n="sidebar.selection"></div>
+                            <div class="selection-info-grid">
+                                <div class="selection-info-item">
+                                    <div class="selection-info-label" data-i18n="selection.width"></div>
+                                    <div class="selection-info-value" id="lblMarqueeWidth">— px</div>
+                                </div>
+                                <div class="selection-info-item">
+                                    <div class="selection-info-label" data-i18n="selection.height"></div>
+                                    <div class="selection-info-value" id="lblMarqueeHeight">— px</div>
+                                </div>
+                                <div class="selection-info-item">
+                                    <div class="selection-info-label" data-i18n="selection.x"></div>
+                                    <div class="selection-info-value" id="lblMarqueeX">— px</div>
+                                </div>
+                                <div class="selection-info-item">
+                                    <div class="selection-info-label" data-i18n="selection.y"></div>
+                                    <div class="selection-info-value" id="lblMarqueeY">— px</div>
+                                </div>
+                            </div>
+                            <p class="tool-hint" data-i18n="sidebar.selectionHint"></p>
+                        </div>
+
                         <div class="section-card">
                             <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
                                 <span data-i18n="sidebar.cropPresets"></span>
                                 <div style="display: flex; align-items: center; gap: 4px; text-transform: none;">
                                     <input type="checkbox" id="chkEnableCrop" style="margin: 0; cursor: pointer;">
-                                    <label for="chkEnableCrop" style="font-size: 0.75rem; user-select: none; cursor: pointer; color: #ccc;" data-i18n="sidebar.enableCrop" data-shortcut="C"></label>
+                                    <label for="chkEnableCrop" style="font-size: 0.75rem; user-select: none; cursor: pointer; color: #ccc;" data-i18n="sidebar.enableCrop" data-shortcut="C / M"></label>
                                 </div>
                             </div>
                             <div class="btn-grid" id="cropPresets" style="margin-bottom: 8px;">
@@ -547,9 +575,9 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                 <button class="btn-secondary" data-ratio="1">1:1</button>
                                 <button class="btn-secondary" data-ratio="1.77777777778">16:9</button>
                                 <button class="btn-secondary" data-ratio="1.33333333333">4:3</button>
-                                <button class="btn-secondary" data-circle="true" data-i18n="sidebar.cropCircle"></button>
                             </div>
                             <button class="btn-accent" id="btnApplyCrop" data-shortcut="Enter"><span data-i18n="sidebar.applyCrop"></span><span class="ui-shortcut-badge"></span></button>
+                            <button class="btn-secondary" id="btnApplyMosaic" style="margin-top: 8px;" data-i18n="sidebar.applyMosaic"></button>
                             <div class="control-group" style="margin-top: 12px; margin-bottom: 0;">
                                 <label data-i18n="sidebar.magicWand"></label>
                                 <div class="slider-row">
@@ -737,6 +765,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc" data-i18n="shortcuts.cancel"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">I + Click</span><span class="shortcut-desc" data-i18n="shortcuts.pickColor"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">↑ ↓ ← →</span><span class="shortcut-desc" data-i18n="shortcuts.moveMarquee"></span></div>
+                        <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-desc" data-i18n="shortcuts.marqueeSelect"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">C</span><span class="shortcut-desc" data-i18n="shortcuts.toggleCrop"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">W + Click</span><span class="shortcut-desc" data-i18n="shortcuts.magicWand"></span></div>
                     </div>
@@ -749,6 +778,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                 <script src="${cropMarqueeLogicUri}"></script>
                 <script src="${resizePanelLogicUri}"></script>
                 <script src="${sharpenLogicUri}"></script>
+                <script src="${mosaicLogicUri}"></script>
                 <script src="${colorLogicUri}"></script>
                 <script src="${magicWandLogicUri}"></script>
                 <script src="${clipboardLogicUri}"></script>

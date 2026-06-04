@@ -256,6 +256,7 @@
     const sharpenSection = document.getElementById('sharpenSection');
     const rngSharpen = document.getElementById('rngSharpen');
     const btnApplyCrop = document.getElementById('btnApplyCrop');
+    const btnApplyMosaic = document.getElementById('btnApplyMosaic');
 
     const selFormat = document.getElementById('selFormat');
     const qualitySection = document.getElementById('qualitySection');
@@ -275,7 +276,7 @@
     let sharpenBaseSrc = null;
     let sharpenPreviewTimer = null;
     let aspectRatio = 0;
-    let isCircular = false;
+    let isMarqueeMode = false;
     let scaleX = 1;
     let scaleY = 1;
     const MAX_HISTORY = 30;
@@ -337,6 +338,10 @@
 
     const lblDimensions = document.getElementById('lblDimensions');
     const lblFileSize = document.getElementById('lblFileSize');
+    const lblMarqueeWidth = document.getElementById('lblMarqueeWidth');
+    const lblMarqueeHeight = document.getElementById('lblMarqueeHeight');
+    const lblMarqueeX = document.getElementById('lblMarqueeX');
+    const lblMarqueeY = document.getElementById('lblMarqueeY');
     let currentFileSizeBytes = parseFileSizeBytes(document.body.dataset.initialFileSizeBytes);
 
     const dashboard = document.getElementById('dashboard');
@@ -428,6 +433,64 @@
         return meta;
     }
 
+    function formatSelectionMetric(value) {
+        return Number.isFinite(value) ? `${Math.max(0, Math.round(value))} px` : '— px';
+    }
+
+    function setSelectionPanelValue(el, value) {
+        if (!el) {
+            return;
+        }
+        el.textContent = value;
+        el.classList.toggle('is-empty', value === '— px');
+    }
+
+    function resetSelectionPanel() {
+        setSelectionPanelValue(lblMarqueeWidth, '— px');
+        setSelectionPanelValue(lblMarqueeHeight, '— px');
+        setSelectionPanelValue(lblMarqueeX, '— px');
+        setSelectionPanelValue(lblMarqueeY, '— px');
+    }
+
+    function updateSelectionPanelFromCrop() {
+        if (!cropper || !chkEnableCrop.checked || !cropper.cropped) {
+            resetSelectionPanel();
+            return;
+        }
+
+        const cropData = cropper.getData(true);
+        setSelectionPanelValue(lblMarqueeWidth, formatSelectionMetric(cropData.width));
+        setSelectionPanelValue(lblMarqueeHeight, formatSelectionMetric(cropData.height));
+    }
+
+    function updateSelectionPanelFromPointer(e) {
+        if (!cropper) {
+            setSelectionPanelValue(lblMarqueeX, '— px');
+            setSelectionPanelValue(lblMarqueeY, '— px');
+            return;
+        }
+
+        const imageData = cropper.getImageData();
+        if (!imageData || !imageData.width || !imageData.height) {
+            setSelectionPanelValue(lblMarqueeX, '— px');
+            setSelectionPanelValue(lblMarqueeY, '— px');
+            return;
+        }
+
+        const rect = cropper.container.getBoundingClientRect();
+        const xInContainer = e.clientX - rect.left;
+        const yInContainer = e.clientY - rect.top;
+        const xInImage = xInContainer - imageData.left;
+        const yInImage = yInContainer - imageData.top;
+        const naturalX = Math.round((xInImage / imageData.width) * imageData.naturalWidth);
+        const naturalY = Math.round((yInImage / imageData.height) * imageData.naturalHeight);
+
+        setSelectionPanelValue(lblMarqueeX, `${naturalX} px`);
+        setSelectionPanelValue(lblMarqueeY, `${naturalY} px`);
+    }
+
+    resetSelectionPanel();
+
     function restoreHistorySnapshot(stackIndex) {
         const restored = historyLogic.restoreSnapshot(historyStack, stackIndex);
         if (!restored) {
@@ -463,19 +526,6 @@
             imageSmoothingEnabled: true,
             imageSmoothingQuality: 'high'
         });
-
-        if (isCircular) {
-            const circleCanvas = document.createElement('canvas');
-            circleCanvas.width = canvas.width;
-            circleCanvas.height = canvas.height;
-            const ctx = circleCanvas.getContext('2d');
-
-            ctx.beginPath();
-            ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(canvas, 0, 0);
-            canvas = circleCanvas;
-        }
 
         historyStack.push({
             src: canvas.toDataURL(),
@@ -624,6 +674,8 @@
     let expandContainerFrame = null;
     let isSpacePressed = false;
     let isHandPressed = false;
+    let isMarqueeFaceHovered = false;
+    let marqueeGestureState = null;
     let isZLoupeActive = false;
     let isZLoupeDragging = false;
     let zLoupeDragStart = null;
@@ -634,7 +686,6 @@
     let isPanning = false;
     let lastPanClientX = 0;
     let lastPanClientY = 0;
-    let suppressCropCheckboxAutoEnable = false;
 
     function scheduleSyncLayout() {
         if (expandContainerFrame !== null) {
@@ -656,8 +707,15 @@
         if (!cropper) {
             return;
         }
+        if (marqueeGestureState) {
+            return;
+        }
         if (isPanShortcutPressed() || isZLoupeActive || isEyedropperActive || isColorPickerMode || isMagicWandMode) {
             cropper.setDragMode('none');
+            return;
+        }
+        if (isMarqueeMode && isMarqueeFaceHovered && chkEnableCrop.checked && cropper.cropped) {
+            cropper.setDragMode('move');
             return;
         }
         cropper.setDragMode(chkEnableCrop.checked ? 'crop' : 'none');
@@ -705,11 +763,20 @@
     };
     const resizePanelLogic = globalThis.VsimageResizePanelLogic || {
         buildResizePanelFromImage: (w, h) => ({
-            baseWidth: w, baseHeight: h, width: w, height: h, scalePercent: 100, widthPlaceholder: ''
+            baseWidth: Math.max(0, Math.round(w)),
+            baseHeight: Math.max(0, Math.round(h)),
+            width: Math.max(0, Math.round(w)),
+            height: Math.max(0, Math.round(h)),
+            scalePercent: 100,
+            widthPlaceholder: ''
         }),
         buildResizePanelFromCrop: (c) => ({
-            baseWidth: c?.width || 0, baseHeight: c?.height || 0,
-            width: c?.width || 0, height: c?.height || 0, scalePercent: 100, widthPlaceholder: ''
+            baseWidth: Math.max(1, Math.round(c?.width || 0)),
+            baseHeight: Math.max(1, Math.round(c?.height || 0)),
+            width: Math.max(1, Math.round(c?.width || 0)),
+            height: Math.max(1, Math.round(c?.height || 0)),
+            scalePercent: 100,
+            widthPlaceholder: ''
         }),
         shouldSyncResizePanelFromImage: () => true,
         percentFromResizeWidth: () => null,
@@ -812,6 +879,110 @@
         amountFromSlider: (p) => (Math.max(0, Math.min(100, Number(p) || 0)) / 100) * 0.85,
         applyUnsharpMask: (canvas) => canvas
     };
+    const mosaicLogic = globalThis.VsimageMosaicLogic || {
+        normalizeBlockSize: (blockSize) => {
+            const size = Math.round(Number(blockSize));
+            return Number.isFinite(size) ? Math.max(1, size) : 8;
+        },
+        clampMosaicRect: (rect, width, height) => {
+            if (!rect || width <= 0 || height <= 0) {
+                return null;
+            }
+
+            const rawX = Math.round(Number(rect.x) || 0);
+            const rawY = Math.round(Number(rect.y) || 0);
+            const rawRight = Math.round(rawX + (Number(rect.width) || 0));
+            const rawBottom = Math.round(rawY + (Number(rect.height) || 0));
+            const x = Math.max(0, Math.min(width, rawX));
+            const y = Math.max(0, Math.min(height, rawY));
+            const right = Math.max(x, Math.min(width, rawRight));
+            const bottom = Math.max(y, Math.min(height, rawBottom));
+            const rectWidth = right - x;
+            const rectHeight = bottom - y;
+
+            if (rectWidth <= 0 || rectHeight <= 0) {
+                return null;
+            }
+
+            return { x, y, width: rectWidth, height: rectHeight };
+        },
+        applyMosaicToImageData: (imageData, rect, blockSize) => {
+            if (!imageData || !imageData.data) {
+                return imageData;
+            }
+
+            const width = imageData.width;
+            const height = imageData.height;
+            const clampedRect = mosaicLogic.clampMosaicRect(rect, width, height);
+            if (!clampedRect) {
+                return imageData;
+            }
+
+            const size = mosaicLogic.normalizeBlockSize(blockSize);
+            const data = imageData.data;
+            const rectRight = clampedRect.x + clampedRect.width;
+            const rectBottom = clampedRect.y + clampedRect.height;
+
+            for (let blockY = clampedRect.y; blockY < rectBottom; blockY += size) {
+                for (let blockX = clampedRect.x; blockX < rectRight; blockX += size) {
+                    const blockRight = Math.min(rectRight, blockX + size);
+                    const blockBottom = Math.min(rectBottom, blockY + size);
+                    let r = 0;
+                    let g = 0;
+                    let b = 0;
+                    let a = 0;
+                    let count = 0;
+
+                    for (let y = blockY; y < blockBottom; y += 1) {
+                        for (let x = blockX; x < blockRight; x += 1) {
+                            const offset = ((y * width) + x) * 4;
+                            r += data[offset];
+                            g += data[offset + 1];
+                            b += data[offset + 2];
+                            a += data[offset + 3];
+                            count += 1;
+                        }
+                    }
+
+                    if (!count) {
+                        continue;
+                    }
+
+                    const avgR = Math.round(r / count);
+                    const avgG = Math.round(g / count);
+                    const avgB = Math.round(b / count);
+                    const avgA = Math.round(a / count);
+
+                    for (let y = blockY; y < blockBottom; y += 1) {
+                        for (let x = blockX; x < blockRight; x += 1) {
+                            const offset = ((y * width) + x) * 4;
+                            data[offset] = avgR;
+                            data[offset + 1] = avgG;
+                            data[offset + 2] = avgB;
+                            data[offset + 3] = avgA;
+                        }
+                    }
+                }
+            }
+
+            return imageData;
+        },
+        applyMosaicToCanvas: (canvas, rect, blockSize) => {
+            if (!canvas || !canvas.width || !canvas.height) {
+                return canvas;
+            }
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return canvas;
+            }
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            mosaicLogic.applyMosaicToImageData(imageData, rect, blockSize);
+            ctx.putImageData(imageData, 0, 0);
+            return canvas;
+        }
+    };
     const colorLogic = globalThis.VsimageColorLogic || {
         buildColorFormats: (r, g, b, a) => {
             const hexByte = (n) => n.toString(16).padStart(2, '0').toUpperCase();
@@ -883,6 +1054,130 @@
         return cropMarqueeLogic.clampCropBox(x, y, width, height, originalWidth, originalHeight);
     }
 
+    function getClampedImagePointFromEvent(e) {
+        if (!cropper || !e) {
+            return null;
+        }
+
+        const imageData = cropper.getImageData();
+        if (!imageData || !imageData.width || !imageData.height || !imageData.naturalWidth || !imageData.naturalHeight) {
+            return null;
+        }
+
+        const rect = cropper.container.getBoundingClientRect();
+        const xInContainer = e.clientX - rect.left;
+        const yInContainer = e.clientY - rect.top;
+        const xInImage = xInContainer - imageData.left;
+        const yInImage = yInContainer - imageData.top;
+
+        const naturalX = Math.round((xInImage / imageData.width) * imageData.naturalWidth);
+        const naturalY = Math.round((yInImage / imageData.height) * imageData.naturalHeight);
+
+        return {
+            x: Math.max(0, Math.min(originalWidth - 1, naturalX)),
+            y: Math.max(0, Math.min(originalHeight - 1, naturalY))
+        };
+    }
+
+    function applyMarqueeFaceStyles(circular) {
+        const face = document.querySelector('.cropper-face');
+        if (face) {
+            face.style.borderRadius = circular ? '50%' : '0';
+            face.style.backgroundColor = 'transparent';
+        }
+    }
+
+    function updateCropPresetActiveButton() {
+        presetButtons.forEach(b => b.classList.remove('active'));
+        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
+        if (freeBtn) {
+            freeBtn.classList.add('active');
+        }
+    }
+
+    function applyMarqueeShape() {
+        if (!cropper) {
+            return;
+        }
+        cropper.setAspectRatio(NaN);
+        applyMarqueeFaceStyles(false);
+        updateCropPresetActiveButton();
+    }
+
+    function syncMarqueeModeUI() {
+        if (workspace) {
+            workspace.classList.toggle('marquee-select-active', isMarqueeMode && chkEnableCrop.checked);
+        }
+    }
+
+    function bindMarqueeFaceHoverInteractions() {
+        const face = document.querySelector('.cropper-face');
+        if (!face || face.dataset.vsimageMarqueeHoverBound === 'true') {
+            return;
+        }
+        face.dataset.vsimageMarqueeHoverBound = 'true';
+        face.addEventListener('mouseenter', () => {
+            if (!cropper || !chkEnableCrop.checked || !cropper.cropped || !isMarqueeMode) {
+                return;
+            }
+            isMarqueeFaceHovered = true;
+            updateCropInteraction();
+        });
+        face.addEventListener('mouseleave', () => {
+            isMarqueeFaceHovered = false;
+            if (!marqueeGestureState) {
+                updateCropInteraction();
+            }
+        });
+    }
+
+    function handleMarqueeCropStart(detail) {
+        if (!detail || !detail.originalEvent || !cropper) {
+            return;
+        }
+
+        marqueeGestureState = {
+            action: detail.action,
+            startPoint: getClampedImagePointFromEvent(detail.originalEvent),
+            startCropData: cropper.cropped ? cropper.getData(true) : null
+        };
+    }
+
+    function handleMarqueeCropMove(e) {
+        if (!marqueeGestureState || !cropper || !e.detail || !e.detail.originalEvent) {
+            return;
+        }
+
+        const originalEvent = e.detail.originalEvent;
+        const currentPoint = getClampedImagePointFromEvent(originalEvent);
+        if (!currentPoint) {
+            return;
+        }
+
+        const nextBox = cropMarqueeLogic.resolveModifierMarqueeBox({
+            startCropData: marqueeGestureState.startCropData,
+            startPoint: marqueeGestureState.startPoint,
+            currentPoint,
+            originalWidth,
+            originalHeight,
+            shiftKey: !!originalEvent.shiftKey,
+            altKey: !!originalEvent.altKey,
+            spacePressed: isSpacePressed
+        });
+
+        if (!nextBox) {
+            return;
+        }
+
+        e.preventDefault();
+        cropper.setData(nextBox);
+    }
+
+    function handleMarqueeCropEnd() {
+        marqueeGestureState = null;
+        updateCropInteraction();
+    }
+
     function initMarqueeToFullImage() {
         setMarqueeToFullImage();
     }
@@ -897,6 +1192,7 @@
         normalizeCanvasOrigin();
         cropper.setData(clampCropBox(0, 0, originalWidth, originalHeight));
         updateResizeInputsFromCrop();
+        updateSelectionPanelFromCrop();
         cacheNaturalCropData();
         scheduleSyncLayout();
     }
@@ -1410,24 +1706,45 @@
     }
 
     document.addEventListener('keydown', (e) => {
-        if (!shortcutLogic.isPanHoldCode(e.code) || e.repeat || isTypingTarget(document.activeElement)) {
+        const isPanHoldKey = shortcutLogic.isPanHoldCode(e.code);
+        if (!isPanHoldKey || e.repeat || isTypingTarget(document.activeElement)) {
+            return;
+        }
+        if (marqueeGestureState) {
+            if (e.code === 'Space') {
+                isSpacePressed = true;
+            }
+            if (e.code === 'KeyH') {
+                isHandPressed = true;
+            }
+            e.preventDefault();
             return;
         }
         if (!isPanTargetVisible()) {
             return;
         }
         e.preventDefault();
-        if (e.code === 'Space') {
+        if (isPanHoldKey && e.code === 'Space') {
             isSpacePressed = true;
         }
-        if (e.code === 'KeyH') {
+        if (isPanHoldKey && e.code === 'KeyH') {
             isHandPressed = true;
         }
         setPanMode(true);
+        updateCropInteraction();
     });
 
     document.addEventListener('keyup', (e) => {
         if (!shortcutLogic.isPanHoldCode(e.code)) {
+            return;
+        }
+        if (marqueeGestureState) {
+            if (e.code === 'Space') {
+                isSpacePressed = false;
+            }
+            if (e.code === 'KeyH') {
+                isHandPressed = false;
+            }
             return;
         }
         if (e.code === 'Space') {
@@ -1440,6 +1757,7 @@
             endPanning();
         }
         setPanMode(isPanShortcutPressed());
+        updateCropInteraction();
         scheduleSyncLayout();
     });
 
@@ -2173,7 +2491,6 @@
         invalidateMagicWandCanvas();
         clearMagicWandMask();
         endMagicWandMode(false);
-        suppressCropCheckboxAutoEnable = true;
         if (!initialImageSrc || preserveInitialSrc) {
             initialImageSrc = src;
         }
@@ -2234,9 +2551,9 @@
                         if (!afterResize) {
                             captureInitialFitRatio();
                         }
-                        suppressCropCheckboxAutoEnable = false;
                     });
                     updateCropInteraction();
+                    bindMarqueeFaceHoverInteractions();
                     if (resizePanelLogic.shouldSyncResizePanelFromImage(chkEnableCrop.checked, cropper.cropped)) {
                         syncResizeInputsToOriginal();
                     } else {
@@ -2246,20 +2563,15 @@
                 },
                 cropmove() {
                     updateResizeInputsFromCrop();
+                    updateSelectionPanelFromCrop();
                     cacheNaturalCropData();
                 },
                 crop() {
                     if (!isApplyingMagicWandSelection) {
                         clearMagicWandMask();
                     }
-                    if (!suppressCropCheckboxAutoEnable && cropper && cropper.cropped && !chkEnableCrop.checked) {
-                        chkEnableCrop.checked = true;
-                        syncCropPresetUI();
-                        presetButtons.forEach(b => b.classList.remove('active'));
-                        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
-                        if (freeBtn) freeBtn.classList.add('active');
-                    }
                     updateResizeInputsFromCrop();
+                    updateSelectionPanelFromCrop();
                     cacheNaturalCropData();
                 },
                 zoom() {
@@ -2269,26 +2581,44 @@
                     });
                 }
             });
+
+            imageEl.addEventListener('cropstart', (e) => {
+                handleMarqueeCropStart(e.detail);
+            });
+            imageEl.addEventListener('cropmove', (e) => {
+                handleMarqueeCropMove(e);
+            });
+            imageEl.addEventListener('cropend', () => {
+                handleMarqueeCropEnd();
+            });
         };
     }
 
     function applyResizePanelState(panel) {
-        resizeBaseWidth = panel.baseWidth;
-        resizeBaseHeight = panel.baseHeight;
+        const baseWidth = Math.max(0, Math.round(Number(panel.baseWidth) || 0));
+        const baseHeight = Math.max(0, Math.round(Number(panel.baseHeight) || 0));
+        const width = Math.max(0, Math.round(Number(panel.width) || 0));
+        const height = Math.max(0, Math.round(Number(panel.height) || 0));
+        const rawScalePercent = Number(panel.scalePercent);
+        const scalePercent = resizePanelLogic.clampResizeScalePercent
+            ? resizePanelLogic.clampResizeScalePercent(Number.isFinite(rawScalePercent) ? rawScalePercent : 100)
+            : Math.round(Number.isFinite(rawScalePercent) ? rawScalePercent : 100);
+        resizeBaseWidth = baseWidth;
+        resizeBaseHeight = baseHeight;
         if (txtWidth) {
-            txtWidth.value = panel.width;
+            txtWidth.value = width;
             txtWidth.placeholder = panel.widthPlaceholder != null
                 ? panel.widthPlaceholder
-                : (panel.width > 0 ? String(panel.width) : '');
+                : (width > 0 ? String(width) : '');
         }
         if (txtHeight) {
-            txtHeight.value = panel.height;
-            txtHeight.placeholder = panel.height > 0 ? String(panel.height) : '';
+            txtHeight.value = height;
+            txtHeight.placeholder = height > 0 ? String(height) : '';
         }
         if (rngResizeScale) {
-            rngResizeScale.value = panel.scalePercent;
+            rngResizeScale.value = scalePercent;
         }
-        setPercentSpan('resizeScaleVal', panel.scalePercent);
+        setPercentSpan('resizeScaleVal', scalePercent);
     }
 
     function syncResizeInputsToOriginal() {
@@ -2456,13 +2786,22 @@
         if (workspace) {
             workspace.classList.toggle('crop-active', isEnabled);
         }
+        syncMarqueeModeUI();
         presetButtons.forEach(btn => {
             btn.disabled = !isEnabled;
         });
         if (btnApplyCrop) {
             btnApplyCrop.disabled = !isEnabled;
         }
+        if (btnApplyMosaic) {
+            btnApplyMosaic.disabled = !isEnabled;
+        }
         updateCropInteraction();
+        if (isEnabled) {
+            updateSelectionPanelFromCrop();
+        } else {
+            resetSelectionPanel();
+        }
     }
 
     // Crop Toggle Checkbox listener
@@ -2471,16 +2810,10 @@
             if (cropper) {
                 initMarqueeToFullImage();
                 // Highlight Free preset by default when crop is checked on
-                presetButtons.forEach(b => b.classList.remove('active'));
-                const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
-                if (freeBtn) freeBtn.classList.add('active');
-                cropper.setAspectRatio(NaN);
-                isCircular = false;
-                const face = document.querySelector('.cropper-face');
-                if (face) {
-                    face.style.borderRadius = '0';
-                    face.style.backgroundColor = 'transparent';
-                }
+                applyMarqueeShape();
+                isMarqueeMode = false;
+                isMarqueeFaceHovered = false;
+                syncMarqueeModeUI();
                 updateResizeInputsFromCrop();
             }
         } else {
@@ -2489,8 +2822,10 @@
             }
             syncResizeInputsToOriginal();
             clearNaturalCropData();
-            isCircular = false;
-            presetButtons.forEach(b => b.classList.remove('active'));
+            applyMarqueeShape();
+            isMarqueeMode = false;
+            isMarqueeFaceHovered = false;
+            syncMarqueeModeUI();
         }
         syncCropPresetUI();
     });
@@ -2502,6 +2837,9 @@
 
         endMagicWandMode(false);
         endColorPickerMode();
+        isMarqueeMode = false;
+        isMarqueeFaceHovered = false;
+        syncMarqueeModeUI();
 
         const turningOn = !chkEnableCrop.checked;
         chkEnableCrop.checked = turningOn;
@@ -2510,6 +2848,31 @@
         vscode.postMessage({
             command: 'show-toast',
             text: t(turningOn ? 'toast.cropActive' : 'toast.cropInactive')
+        });
+    }
+
+    function toggleMarqueeModeWithKey() {
+        if (!cropper) {
+            return;
+        }
+
+        endMagicWandMode(false);
+        endColorPickerMode();
+
+        if (!chkEnableCrop.checked) {
+            chkEnableCrop.checked = true;
+            syncCropPresetUI();
+            initMarqueeToFullImage();
+        }
+
+        isMarqueeMode = true;
+        isMarqueeFaceHovered = false;
+        applyMarqueeShape();
+        syncMarqueeModeUI();
+        focusCropKeyboardTarget();
+        vscode.postMessage({
+            command: 'show-toast',
+            text: t('toast.marqueeActive')
         });
     }
 
@@ -2531,26 +2894,12 @@
                 cropper.crop();
             }
 
-            isCircular = btn.dataset.circle === 'true';
-
-            if (isCircular) {
-                // Circle cropping uses 1:1 aspect ratio constraint visually
-                cropper.setAspectRatio(1);
-                const face = document.querySelector('.cropper-face');
-                if (face) {
-                    face.style.borderRadius = '50%';
-                    face.style.backgroundColor = 'transparent';
-                }
-            } else {
-                const face = document.querySelector('.cropper-face');
-                if (face) {
-                    face.style.borderRadius = '0';
-                    face.style.backgroundColor = 'transparent';
-                }
-                
-                const ratio = parseFloat(btn.dataset.ratio);
-                cropper.setAspectRatio(isNaN(ratio) ? NaN : ratio);
-            }
+            applyMarqueeShape();
+            isMarqueeMode = false;
+            isMarqueeFaceHovered = false;
+            syncMarqueeModeUI();
+            const ratio = parseFloat(btn.dataset.ratio);
+            cropper.setAspectRatio(isNaN(ratio) ? NaN : ratio);
         });
     });
 
@@ -2626,6 +2975,7 @@
         normalizeCanvasOrigin();
         cropper.setData(bounds);
         updateResizeInputsFromCrop();
+        updateSelectionPanelFromCrop();
         cacheNaturalCropData();
         scheduleSyncLayout();
     }
@@ -2647,10 +2997,8 @@
 
         ensureCropModeEnabled();
 
-        isCircular = false;
+        applyMarqueeShape(false);
         cropper.crop();
-        cropper.setAspectRatio(NaN);
-        resetCropFaceStyles();
 
         invalidateMagicWandCanvas();
         const bounds = getContentBoundsFromRegion(0, 0, originalWidth, originalHeight, false);
@@ -2688,14 +3036,7 @@
         }
         applyZoomTo(1);
         updateZoomIndicator();
-        presetButtons.forEach(b => b.classList.remove('active'));
-        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
-        if (freeBtn) {
-            freeBtn.classList.add('active');
-        }
-        cropper.setAspectRatio(NaN);
-        isCircular = false;
-        resetCropFaceStyles();
+        applyMarqueeShape(false);
         vscode.postMessage({ command: 'show-toast', text: t('toast.trimCropFull') });
         return true;
     }
@@ -2728,7 +3069,7 @@
         }
 
         invalidateMagicWandCanvas();
-        const bounds = getContentBoundsFromRegion(regionX, regionY, regionW, regionH, isCircular);
+        const bounds = getContentBoundsFromRegion(regionX, regionY, regionW, regionH, false);
         if (!bounds) {
             vscode.postMessage({ command: 'show-toast', text: t('toast.trimCropEmpty') });
             return false;
@@ -2914,20 +3255,6 @@
 
             let canvas = getCroppedCanvasResized(targetWidth, targetHeight);
 
-            // Apply circular mask if circle crop is active
-            if (isCircular) {
-                const circleCanvas = document.createElement('canvas');
-                circleCanvas.width = canvas.width;
-                circleCanvas.height = canvas.height;
-                const ctx = circleCanvas.getContext('2d');
-                
-                ctx.beginPath();
-                ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.drawImage(canvas, 0, 0);
-                canvas = circleCanvas;
-            }
-
             const newSrc = canvas.toDataURL();
             let preserveZoomRatio = null;
             if (cropper) {
@@ -2970,20 +3297,6 @@
             imageSmoothingQuality: 'high'
         });
 
-        // Apply circular mask if circle crop is active
-        if (isCircular) {
-            const circleCanvas = document.createElement('canvas');
-            circleCanvas.width = canvas.width;
-            circleCanvas.height = canvas.height;
-            const ctx = circleCanvas.getContext('2d');
-            
-            ctx.beginPath();
-            ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(canvas, 0, 0);
-            canvas = circleCanvas;
-        }
-
         const newSrc = canvas.toDataURL();
         chkEnableCrop.checked = false;
         syncCropPresetUI();
@@ -2992,6 +3305,40 @@
         notifyDocumentChanged('edit.crop');
         vscode.postMessage({ command: 'show-toast', text: t('toast.cropApplied') });
     });
+
+    function applyMosaicToSelection() {
+        if (!cropper) return;
+        if (!chkEnableCrop.checked || !cropper.cropped) {
+            vscode.postMessage({ command: 'show-toast', text: t('toast.cropSelectFirst') });
+            return;
+        }
+
+        clearMagicWandMask();
+        endMagicWandMode(false);
+        endColorPickerMode();
+        pushHistorySnapshot('edit.mosaic');
+
+        const cropData = cropper.getData(true);
+        const canvas = document.createElement('canvas');
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imageEl, 0, 0);
+        const mosaicBlockSize = Math.max(
+            16,
+            Math.min(64, Math.round(Math.min(cropData.width, cropData.height) / 6))
+        );
+        mosaicLogic.applyMosaicToCanvas(canvas, cropData, mosaicBlockSize);
+
+        const newSrc = canvas.toDataURL();
+        initEditor(newSrc);
+        notifyDocumentChanged('edit.mosaic');
+        vscode.postMessage({ command: 'show-toast', text: t('toast.mosaicApplied') });
+    }
+
+    if (btnApplyMosaic) {
+        btnApplyMosaic.addEventListener('click', applyMosaicToSelection);
+    }
 
     // Hook up saving triggers
     const btnSave = document.getElementById('btnSave');
@@ -3611,11 +3958,7 @@
         isApplyingMagicWandSelection = false;
         cacheNaturalCropData();
 
-        presetButtons.forEach(b => b.classList.remove('active'));
-        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
-        if (freeBtn) {
-            freeBtn.classList.add('active');
-        }
+        applyMarqueeShape(false);
 
         updateResizeInputsFromCrop();
         renderMagicWandOverlay();
@@ -3791,6 +4134,15 @@
         });
     }
 
+    workspace.addEventListener('mousemove', (e) => {
+        updateSelectionPanelFromPointer(e);
+    }, true);
+
+    workspace.addEventListener('mouseleave', () => {
+        setSelectionPanelValue(lblMarqueeX, '— px');
+        setSelectionPanelValue(lblMarqueeY, '— px');
+    }, true);
+
     // Workspace mousemove handler during capture phase to implement Eyedropper real-time live preview and tooltip tracking
     workspace.addEventListener('mousemove', (e) => {
         if (!isEyedropperActive || !eraseTargetBounds) return;
@@ -3879,32 +4231,13 @@
 
             // Fill target marquee selection with the sampled color
             ctx.fillStyle = color;
-            if (isCircular) {
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(eraseTargetBounds.x + eraseTargetBounds.width / 2, eraseTargetBounds.y + eraseTargetBounds.height / 2, eraseTargetBounds.width / 2, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                ctx.fillRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                ctx.restore();
-            } else {
-                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                ctx.fillRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-            }
+            ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
+            ctx.fillRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
 
             vscode.postMessage({ command: 'show-toast', text: t('toast.selectionFilled') });
         } else {
             // Erase target marquee selection to transparent
-            if (isCircular) {
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(eraseTargetBounds.x + eraseTargetBounds.width / 2, eraseTargetBounds.y + eraseTargetBounds.height / 2, eraseTargetBounds.width / 2, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                ctx.restore();
-            } else {
-                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-            }
+            ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
 
             vscode.postMessage({ command: 'show-toast', text: t('toast.selectionErased') });
         }
@@ -4010,9 +4343,8 @@
             width: originalWidth,
             height: originalHeight
         });
-        presetButtons.forEach(b => b.classList.remove('active'));
-        const freeBtn = document.querySelector('#cropPresets button[data-ratio="NaN"]');
-        if (freeBtn) freeBtn.classList.add('active');
+        updateSelectionPanelFromCrop();
+        applyMarqueeShape(false);
     }
 
     function runShortcutAction(shortcutAction, options = {}) {
@@ -4046,6 +4378,10 @@
         }
         if (shortcutAction === 'crop') {
             toggleCropModeWithKey();
+            return true;
+        }
+        if (shortcutAction === 'marquee') {
+            toggleMarqueeModeWithKey();
             return true;
         }
         if (shortcutAction === 'magicWand') {
@@ -4183,16 +4519,7 @@
                 ctx.drawImage(imageEl, 0, 0);
 
                 // Erase target marquee selection to transparent
-                if (isCircular) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.arc(eraseTargetBounds.x + eraseTargetBounds.width / 2, eraseTargetBounds.y + eraseTargetBounds.height / 2, eraseTargetBounds.width / 2, 0, Math.PI * 2);
-                    ctx.clip();
-                    ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                    ctx.restore();
-                } else {
-                    ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-                }
+                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
 
                 const newSrc = canvas.toDataURL();
                 initEditor(newSrc);
@@ -4212,8 +4539,7 @@
                 syncCropPresetUI();
                 cropper.clear();
                 syncResizeInputsToOriginal();
-                isCircular = false;
-                presetButtons.forEach(b => b.classList.remove('active'));
+                applyMarqueeShape(false);
             }
             return;
         }
@@ -4306,20 +4632,6 @@
                 }
 
                 canvas = getCroppedCanvasResized(targetWidth, targetHeight);
-            }
-
-            // Apply circular mask if circle crop is active
-            if (isCircular) {
-                const circleCanvas = document.createElement('canvas');
-                circleCanvas.width = canvas.width;
-                circleCanvas.height = canvas.height;
-                const ctx = circleCanvas.getContext('2d');
-                
-                ctx.beginPath();
-                ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-                ctx.clip();
-                ctx.drawImage(canvas, 0, 0);
-                canvas = circleCanvas;
             }
 
             if (magicWandMask && magicWandBounds && !(options && options.copySelectionOnly === false)) {
