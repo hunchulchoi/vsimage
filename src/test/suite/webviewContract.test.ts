@@ -113,6 +113,7 @@ suite('Webview contracts', () => {
         assert.ok(provider.includes('marquee-shortcut-tooltip-row'));
         assert.ok(provider.includes('shortcuts.eraseSelection'));
         assert.ok(provider.includes('shortcuts.mosaicSelection'));
+        assert.ok(provider.includes('shortcuts.cancel'));
         assert.ok(styles.includes('.marquee-shortcut-tooltip'));
         assert.ok(styles.includes('.marquee-shortcut-tooltip-row'));
         assert.ok(editor.includes('showMarqueeShortcutTooltip'));

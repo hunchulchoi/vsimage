@@ -698,6 +698,10 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         <span class="marquee-shortcut-key">X</span>
                         <span class="marquee-shortcut-desc" data-i18n="shortcuts.mosaicSelection"></span>
                     </div>
+                    <div class="marquee-shortcut-tooltip-row">
+                        <span class="marquee-shortcut-key">Esc</span>
+                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.cancel"></span>
+                    </div>
                 </div>
 
                 <!-- Floating Eyedropper Tooltip -->
