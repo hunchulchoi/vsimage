@@ -49,6 +49,7 @@
   "sidebar.sharpenHint": "크기 적용 후 조정합니다. 0%면 리사이즈 직후 상태입니다.",
   "sidebar.mosaicSize": "픽셀 크기",
   "sidebar.mosaicHint": "모자이크를 적용하기 전에 여기서 블록 크기를 조절하세요.",
+  "sidebar.mosaicNeedsMarquee": "마퀴를 먼저 켜세요.",
   "sidebar.mosaicCancel": "취소",
   "sidebar.mosaicConfirm": "모자이크 적용",
   "sidebar.saveExport": "💾 저장 및 내보내기",

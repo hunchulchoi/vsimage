@@ -108,6 +108,11 @@ body, html {
     z-index: 19;
 }
 
+.canvas-workspace.crop-active .image-container .cropper-container {
+    position: relative;
+    z-index: 21;
+}
+
 /* Hide crop overlay unless crop mode is enabled */
 .canvas-workspace:not(.crop-active) .cropper-crop-box,
 .canvas-workspace:not(.crop-active) .cropper-view-box,
@@ -252,6 +257,24 @@ body, html {
 .tool-rail-btn:hover {
     background: rgba(55, 55, 55, 0.96);
     border-color: rgba(255, 255, 255, 0.16);
+}
+
+.tool-rail-btn:disabled,
+.tool-rail-btn.is-disabled,
+.tool-rail-btn[aria-disabled="true"] {
+    opacity: 0.34;
+    cursor: not-allowed;
+    background: rgba(38, 38, 38, 0.72);
+    border-color: rgba(255, 255, 255, 0.05);
+    box-shadow: none;
+    transform: none;
+}
+
+.tool-rail-btn:disabled:hover,
+.tool-rail-btn.is-disabled:hover,
+.tool-rail-btn[aria-disabled="true"]:hover {
+    background: rgba(38, 38, 38, 0.72);
+    border-color: rgba(255, 255, 255, 0.05);
 }
 
 .tool-rail-btn.active {
@@ -428,6 +451,21 @@ body.show-shortcut-hints [data-shortcut] .ui-shortcut-badge {
     font-size: 0.72rem;
     font-family: monospace;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    white-space: nowrap;
+}
+
+.tool-rail-tooltip {
+    position: fixed;
+    z-index: 10020;
+    pointer-events: none;
+    background: rgba(22, 22, 22, 0.96);
+    color: var(--vscode-editor-foreground, #cccccc);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 0.76rem;
+    line-height: 1.2;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
     white-space: nowrap;
 }
 
@@ -921,13 +959,17 @@ body.show-shortcut-hints [data-shortcut] .ui-shortcut-badge {
 }
 
 /* Disabled secondary button styling */
-.btn-secondary:disabled {
+.btn-secondary:disabled,
+.btn-secondary.is-disabled,
+.btn-secondary[aria-disabled="true"] {
     opacity: 0.35;
     cursor: not-allowed;
     background-color: #2a2a2a;
     color: #666666;
 }
-.btn-secondary:disabled:hover {
+.btn-secondary:disabled:hover,
+.btn-secondary.is-disabled:hover,
+.btn-secondary[aria-disabled="true"]:hover {
     background-color: #2a2a2a;
 }
 

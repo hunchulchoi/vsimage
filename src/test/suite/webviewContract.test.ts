@@ -119,6 +119,8 @@ suite('Webview contracts', () => {
         assert.ok(provider.includes('id="toolOptionsCursor"'));
         assert.ok(provider.includes('id="toolOptionsMarquee"'));
         assert.ok(provider.includes('id="toolOptionsCrop"'));
+        assert.ok(provider.includes('id="chkEnableCrop" hidden aria-hidden="true"'));
+        assert.ok(!provider.includes('data-shortcut="C / M"'));
         assert.ok(provider.includes('id="toolOptionsResize"'));
         assert.ok(provider.includes('id="toolOptionsMosaic"'));
         assert.ok(provider.includes('id="toolOptionsMove"'));
@@ -149,6 +151,13 @@ suite('Webview contracts', () => {
         assert.ok(editor.includes("const tool = btn.dataset.tool || 'cursor';"));
         assert.ok(editor.includes("if (tool === 'marquee') {"));
         assert.ok(editor.includes("setActiveTool('marquee', { setMarqueeMode: true });"));
+        assert.ok(editor.includes('function syncMosaicAvailability() {'));
+        assert.ok(editor.includes("sidebar.mosaicNeedsMarquee"));
+        assert.ok(editor.includes('aria-disabled'));
+        assert.ok(editor.includes("[btnToolMosaic, btnApplyMosaic].forEach((btn) => {"));
+        assert.ok(editor.includes("btn.classList.toggle('is-disabled', !canUseMosaic);"));
+        assert.ok(editor.includes("btn.title = getMosaicTitle(btn);"));
+        assert.ok(editor.includes("setActiveTool('mosaic', { keepCropEnabled: true });"));
         assert.ok(editor.includes("btnApplyCrop.addEventListener('click', () => {"));
         assert.ok(editor.includes('btnApplyCrop.click();'));
         assert.ok(editor.includes("activeTool = toolRailLogic.resolveToolAfterApply(activeTool, 'crop');"));
@@ -158,6 +167,11 @@ suite('Webview contracts', () => {
         assert.ok(editor.includes("chkEnableCrop.dispatchEvent(new Event('change'));"));
         assert.ok(editor.includes('toolRailLogic.shouldBlockMarqueeCreation(activeTool)'));
         assert.ok(editor.includes("setActiveTool('marquee', { setMarqueeMode: true });"));
+        const escapeIndex = editor.indexOf("if (e.key === 'Escape')");
+        const inputGuardIndex = editor.indexOf('if (isInput) {');
+        assert.ok(escapeIndex >= 0);
+        assert.ok(inputGuardIndex >= 0);
+        assert.ok(escapeIndex < inputGuardIndex);
     });
 
     test('shows a live selection panel for marquee size and pointer coordinates', () => {
@@ -246,6 +260,31 @@ suite('Webview contracts', () => {
         assert.ok(styles.includes('height: 14px;'));
     });
 
+    test('keeps marquee above the mosaic preview layer', () => {
+        assert.ok(styles.includes('.canvas-workspace.crop-active .image-container .cropper-container'));
+    });
+
+    test('adds shortcut metadata and badges to the tool rail', () => {
+        assert.ok(provider.includes('id="btnToolMarquee" data-tool="marquee" data-shortcut="M"'));
+        assert.ok(provider.includes('id="btnToolCrop" data-tool="crop" data-shortcut="C"'));
+        assert.ok(provider.includes('id="btnToolMosaic" data-tool="mosaic" data-shortcut="X"'));
+        assert.ok(provider.includes('id="btnToolMove" data-tool="move" data-shortcut="H"'));
+        assert.ok(provider.includes('<span class="ui-shortcut-badge"></span>'));
+    });
+
+    test('shows a visible tooltip for tool rail button names', () => {
+        assert.ok(provider.includes('id="toolRailTooltip"'));
+        assert.ok(editor.includes('function showToolRailTooltip('));
+        assert.ok(editor.includes('function bindToolRailTooltipInteractions('));
+        assert.ok(editor.includes('toolRailTooltip'));
+        assert.ok(styles.includes('.tool-rail-tooltip'));
+    });
+
+    test('blocks mosaic tool clicks while the button is disabled', () => {
+        assert.ok(editor.includes("if (tool === 'mosaic') {"));
+        assert.ok(editor.includes("if (tool === 'mosaic' && btn.getAttribute('aria-disabled') === 'true') {"));
+    });
+
     test('wires the marquee mosaic action through the webview', () => {
         assert.ok(provider.includes('mosaicLogicUri'));
         assert.ok(provider.includes('btnApplyMosaic'));
@@ -260,11 +299,15 @@ suite('Webview contracts', () => {
         assert.ok(editor.includes('function showMosaicModal()'));
         assert.ok(editor.includes('function renderMosaicPreview()'));
         assert.ok(editor.includes('function hideMosaicModal()'));
-        assert.ok(editor.includes("btnApplyMosaic.addEventListener('click', () => {"));
-        assert.ok(editor.includes("setActiveTool('mosaic');"));
+        assert.ok(editor.includes("if (tool === 'mosaic') {"));
+        assert.ok(editor.includes("setActiveTool('mosaic', { keepCropEnabled: true });"));
         assert.ok(editor.includes('showMosaicModal();'));
+        assert.ok(editor.includes('mosaicPreviewSourceCanvas'));
+        assert.ok(editor.includes('applyMosaicToCanvas('));
+        assert.ok(editor.includes('ctx.drawImage(mosaicPreviewSourceCanvas'));
+        assert.ok(editor.includes("btnApplyMosaic.addEventListener('click', () => {"));
         assert.ok(editor.includes("if (shortcutAction === 'mosaic') {"));
-        assert.ok(editor.includes("setActiveTool('mosaic');"));
+        assert.ok(editor.includes("setActiveTool('mosaic', { keepCropEnabled: true });"));
         assert.ok(provider.includes('shortcuts.mosaicSelection'));
         assert.ok(!provider.includes('id="mosaicModal"'));
     });

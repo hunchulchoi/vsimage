@@ -49,6 +49,7 @@
   "sidebar.sharpenHint": "Adjust after Apply Resize. 0% restores the resized image.",
   "sidebar.mosaicSize": "Pixel Size",
   "sidebar.mosaicHint": "Adjust the block size here before you apply the mosaic.",
+  "sidebar.mosaicNeedsMarquee": "Turn on marquee first.",
   "sidebar.mosaicCancel": "Cancel",
   "sidebar.mosaicConfirm": "Apply Mosaic",
   "sidebar.saveExport": "💾 Save & Export",

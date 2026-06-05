@@ -485,15 +485,16 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="toolbar.cursor"></span>
                             </button>
-                            <button type="button" class="tool-rail-btn" id="btnToolMarquee" data-tool="marquee" data-i18n-title="toolbar.marqueeSelect">
+                            <button type="button" class="tool-rail-btn" id="btnToolMarquee" data-tool="marquee" data-shortcut="M" data-i18n-title="toolbar.marqueeSelect">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <rect x="4" y="4" width="12" height="12" rx="2"></rect>
                                     <path d="M14.5 14.5 20 20"></path>
                                     <path d="M17 20h3v-3"></path>
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="toolbar.marqueeSelect"></span>
+                                <span class="ui-shortcut-badge"></span>
                             </button>
-                            <button type="button" class="tool-rail-btn" id="btnToolCrop" data-tool="crop" data-i18n-title="shortcuts.toggleCrop">
+                            <button type="button" class="tool-rail-btn" id="btnToolCrop" data-tool="crop" data-shortcut="C" data-i18n-title="shortcuts.toggleCrop">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M7 3v6H3"></path>
                                     <path d="M17 3h4v4"></path>
@@ -502,6 +503,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                     <path d="M8 16 16 8"></path>
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="shortcuts.toggleCrop"></span>
+                                <span class="ui-shortcut-badge"></span>
                             </button>
                             <button type="button" class="tool-rail-btn" id="btnToolResize" data-tool="resize" data-i18n-title="sidebar.resize">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -513,7 +515,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="sidebar.resize"></span>
                             </button>
-                            <button type="button" class="tool-rail-btn" id="btnToolMosaic" data-tool="mosaic" data-i18n-title="sidebar.applyMosaic">
+                            <button type="button" class="tool-rail-btn" id="btnToolMosaic" data-tool="mosaic" data-shortcut="X" data-i18n-title="sidebar.applyMosaic">
                                 <svg class="tool-rail-icon tool-rail-icon-grid" viewBox="0 0 24 24" aria-hidden="true">
                                     <rect x="4" y="4" width="4" height="4" rx="1"></rect>
                                     <rect x="10" y="4" width="4" height="4" rx="1"></rect>
@@ -526,8 +528,9 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                     <rect x="16" y="16" width="4" height="4" rx="1"></rect>
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="sidebar.applyMosaic"></span>
+                                <span class="ui-shortcut-badge"></span>
                             </button>
-                            <button type="button" class="tool-rail-btn" id="btnToolMove" data-tool="move" data-i18n-title="shortcuts.pan">
+                            <button type="button" class="tool-rail-btn" id="btnToolMove" data-tool="move" data-shortcut="H" data-i18n-title="shortcuts.pan">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 3v18"></path>
                                     <path d="M3 12h18"></path>
@@ -541,6 +544,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                     <path d="M21 12l-3 3"></path>
                                 </svg>
                                 <span class="tool-rail-label" data-i18n="shortcuts.pan"></span>
+                                <span class="ui-shortcut-badge"></span>
                             </button>
                             <button type="button" class="tool-rail-btn tool-rail-secondary" id="btnRotateLeft" data-shortcut="shift+r" data-i18n-title="toolbar.rotateLeft">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -649,12 +653,9 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                 <p class="tool-options-note" data-i18n="shortcuts.marqueeSelect"></p>
                             </div>
                             <div class="tool-options-panel" id="toolOptionsCrop">
+                                <input type="checkbox" id="chkEnableCrop" hidden aria-hidden="true">
                                 <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
                                     <span data-i18n="sidebar.cropPresets"></span>
-                                    <div style="display: flex; align-items: center; gap: 4px; text-transform: none;">
-                                        <input type="checkbox" id="chkEnableCrop" style="margin: 0; cursor: pointer;">
-                                        <label for="chkEnableCrop" style="font-size: 0.75rem; user-select: none; cursor: pointer; color: #ccc;" data-i18n="sidebar.enableCrop" data-shortcut="C / M"></label>
-                                    </div>
                                 </div>
                                 <div class="btn-grid" id="cropPresets" style="margin-bottom: 8px;">
                                     <button class="btn-secondary" data-auto="true" data-i18n="sidebar.cropAuto"></button>
@@ -713,7 +714,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                                     </div>
                                     <p class="tool-hint" data-i18n="sidebar.mosaicHint"></p>
                                 </div>
-                                <button class="btn-secondary" id="btnApplyMosaic" data-i18n="sidebar.applyMosaic"></button>
+                                <button class="btn-secondary" id="btnApplyMosaic" data-i18n-title="sidebar.applyMosaic"></button>
                                 <div class="mosaic-modal-actions" style="margin-top: 8px;">
                                     <button type="button" class="btn-secondary" id="btnMosaicCancel" data-i18n="sidebar.mosaicCancel"></button>
                                     <button type="button" class="btn-accent mosaic-modal-confirm" id="btnMosaicConfirm" data-i18n="sidebar.mosaicConfirm"></button>
@@ -789,6 +790,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                 </div>
 
                 <div id="shortcutHintTooltip" class="shortcut-hint-tooltip" style="display: none;"></div>
+                <div id="toolRailTooltip" class="tool-rail-tooltip" style="display: none;"></div>
 
                 <div id="marqueeShortcutTooltip" class="marquee-shortcut-tooltip" style="display: none;">
                     <div class="marquee-shortcut-tooltip-row">

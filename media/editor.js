@@ -177,6 +177,7 @@
         shortcutOverlayDismissed = true;
         setShortcutHintsVisible(false);
         hideShortcutHintTooltip();
+        hideToolRailTooltip();
         hideMarqueeShortcutTooltip();
         if (contextMenu) {
             contextMenu.style.display = 'none';
@@ -186,6 +187,12 @@
     function hideShortcutHintTooltip() {
         if (shortcutHintTooltip) {
             shortcutHintTooltip.style.display = 'none';
+        }
+    }
+
+    function hideToolRailTooltip() {
+        if (toolRailTooltip) {
+            toolRailTooltip.style.display = 'none';
         }
     }
 
@@ -206,6 +213,26 @@
         shortcutHintTooltip.style.top = `${clientY + 14}px`;
     }
 
+    function showToolRailTooltip(el, clientX, clientY) {
+        if (!toolRailTooltip || !el) {
+            return;
+        }
+
+        const titleKey = el.getAttribute('data-i18n-title');
+        const baseLabel = titleKey ? t(titleKey) : '';
+        const shortcut = formatShortcut(el.getAttribute('data-shortcut'));
+        const text = shortcut ? `${baseLabel} (${shortcut})` : baseLabel;
+        if (!text) {
+            hideToolRailTooltip();
+            return;
+        }
+
+        toolRailTooltip.textContent = text;
+        toolRailTooltip.style.display = 'block';
+        toolRailTooltip.style.left = `${clientX + 14}px`;
+        toolRailTooltip.style.top = `${clientY + 14}px`;
+    }
+
     function bindShortcutHintInteractions() {
         document.querySelectorAll('[data-shortcut]').forEach((el) => {
             el.addEventListener('mouseenter', (e) => {
@@ -217,6 +244,20 @@
                 }
             });
             el.addEventListener('mouseleave', hideShortcutHintTooltip);
+        });
+    }
+
+    function bindToolRailTooltipInteractions() {
+        document.querySelectorAll('.tool-rail-btn').forEach((el) => {
+            el.addEventListener('mouseenter', (e) => {
+                showToolRailTooltip(el, e.clientX, e.clientY);
+            });
+            el.addEventListener('mousemove', (e) => {
+                if (toolRailTooltip && toolRailTooltip.style.display === 'block') {
+                    showToolRailTooltip(el, e.clientX, e.clientY);
+                }
+            });
+            el.addEventListener('mouseleave', hideToolRailTooltip);
         });
     }
 
@@ -290,6 +331,7 @@
     const sharpenSection = document.getElementById('sharpenSection');
     const rngSharpen = document.getElementById('rngSharpen');
     const btnApplyCrop = document.getElementById('btnApplyCrop');
+    const btnToolMosaic = document.getElementById('btnToolMosaic');
     const btnApplyMosaic = document.getElementById('btnApplyMosaic');
     const btnMosaicCancel = document.getElementById('btnMosaicCancel');
     const btnMosaicConfirm = document.getElementById('btnMosaicConfirm');
@@ -348,6 +390,7 @@
     let mosaicPreviewState = null;
     let mosaicPreviewCanvas = null;
     let mosaicPreviewCtx = null;
+    let mosaicPreviewSourceCanvas = null;
     let mosaicPreviewRaf = null;
     /** Natural-image crop rect; kept in sync on crop changes, not re-read after zoom. */
     let lastNaturalCropData = null;
@@ -403,6 +446,7 @@
     const contextMenu = document.getElementById('contextMenu');
     const shortcutOverlay = document.getElementById('shortcutOverlay');
     const shortcutHintTooltip = document.getElementById('shortcutHintTooltip');
+    const toolRailTooltip = document.getElementById('toolRailTooltip');
     let shortcutOverlayDismissed = false;
 
     function notifyDocumentChanged(labelKey) {
@@ -1718,6 +1762,7 @@
     });
     window.addEventListener('blur', () => {
         setShortcutHintsVisible(false);
+        hideToolRailTooltip();
     });
 
     // Redraw rulers while panning/scrolling (RAF-throttled) — set up once
@@ -2489,6 +2534,7 @@
         applyI18n();
         applyShortcutHints();
         bindShortcutHintInteractions();
+        bindToolRailTooltipInteractions();
         bindSidebarAutoCollapse();
         setFileSizeLabel(currentFileSizeBytes);
         startEditorMode();
@@ -2983,14 +3029,36 @@
             btnApplyCrop.disabled = !isEnabled;
         }
         if (btnApplyMosaic) {
-            btnApplyMosaic.disabled = !isEnabled;
+            btnApplyMosaic.disabled = !isEnabled || !cropper || !cropper.cropped;
         }
+        syncMosaicAvailability();
         updateCropInteraction();
         if (isEnabled) {
             updateSelectionPanelFromCrop();
         } else {
             resetSelectionPanel();
         }
+    }
+
+    function syncMosaicAvailability() {
+        const canUseMosaic = !!(cropper && chkEnableCrop.checked && cropper.cropped);
+        const getMosaicTitle = (btn) => {
+            if (canUseMosaic) {
+                const titleKey = btn && btn.getAttribute('data-i18n-title');
+                return titleKey ? t(titleKey) : '';
+            }
+            return t('sidebar.mosaicNeedsMarquee');
+        };
+
+        [btnToolMosaic, btnApplyMosaic].forEach((btn) => {
+            if (!btn) {
+                return;
+            }
+            btn.classList.toggle('is-disabled', !canUseMosaic);
+            btn.setAttribute('aria-disabled', canUseMosaic ? 'false' : 'true');
+            btn.tabIndex = canUseMosaic ? 0 : -1;
+            btn.title = getMosaicTitle(btn);
+        });
     }
 
     // Crop Toggle Checkbox listener
@@ -3013,6 +3081,7 @@
             isMarqueeMode = false;
         }
         syncCropPresetUI();
+        syncMosaicAvailability();
         if (suppressCropCheckboxToolSync) {
             return;
         }
@@ -3200,7 +3269,7 @@
 
         if (toolRailLogic.shouldEnableCropForTool(activeTool) && !chkEnableCrop.checked) {
             ensureCropModeEnabled();
-        } else if (!toolRailLogic.shouldEnableCropForTool(activeTool) && chkEnableCrop.checked) {
+        } else if (!toolRailLogic.shouldEnableCropForTool(activeTool) && chkEnableCrop.checked && !options.keepCropEnabled) {
             suppressCropCheckboxToolSync = true;
             chkEnableCrop.checked = false;
             chkEnableCrop.dispatchEvent(new Event('change'));
@@ -3443,6 +3512,9 @@
     toolButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
             const tool = btn.dataset.tool || 'cursor';
+            if (tool === 'mosaic' && btn.getAttribute('aria-disabled') === 'true') {
+                return;
+            }
             if (tool === 'crop') {
                 setActiveTool('crop');
                 return;
@@ -3460,7 +3532,8 @@
                 return;
             }
             if (tool === 'mosaic') {
-                setActiveTool('mosaic');
+                setActiveTool('mosaic', { keepCropEnabled: true });
+                showMosaicModal();
                 return;
             }
             if (tool === 'move') {
@@ -3574,7 +3647,10 @@
 
     if (btnApplyMosaic) {
         btnApplyMosaic.addEventListener('click', () => {
-            setActiveTool('mosaic');
+            if (btnApplyMosaic.getAttribute('aria-disabled') === 'true') {
+                return;
+            }
+            setActiveTool('mosaic', { keepCropEnabled: true });
             showMosaicModal();
         });
     }
@@ -3789,6 +3865,23 @@
         mosaicPreviewCanvas.style.height = `${previewHeight}px`;
         mosaicPreviewCanvas.style.display = 'block';
 
+        if (!mosaicPreviewSourceCanvas
+            || mosaicPreviewSourceCanvas.width !== imageData.naturalWidth
+            || mosaicPreviewSourceCanvas.height !== imageData.naturalHeight) {
+            mosaicPreviewSourceCanvas = document.createElement('canvas');
+            mosaicPreviewSourceCanvas.width = imageData.naturalWidth;
+            mosaicPreviewSourceCanvas.height = imageData.naturalHeight;
+        }
+
+        const sourceCtx = mosaicPreviewSourceCanvas.getContext('2d');
+        sourceCtx.clearRect(0, 0, mosaicPreviewSourceCanvas.width, mosaicPreviewSourceCanvas.height);
+        sourceCtx.drawImage(imageEl, 0, 0, mosaicPreviewSourceCanvas.width, mosaicPreviewSourceCanvas.height);
+        mosaicLogic.applyMosaicToCanvas(
+            mosaicPreviewSourceCanvas,
+            mosaicPreviewState.cropData,
+            getMosaicBlockSize()
+        );
+
         const ctx = mosaicPreviewCtx;
         ctx.clearRect(0, 0, previewWidth, previewHeight);
         ctx.save();
@@ -3797,13 +3890,8 @@
         ctx.translate(previewWidth / 2, previewHeight / 2);
         ctx.rotate(((Number(imageData.rotate) || 0) * Math.PI) / 180);
         ctx.scale(Number(imageData.scaleX) || 1, Number(imageData.scaleY) || 1);
-        ctx.drawImage(imageEl, -previewWidth / 2, -previewHeight / 2, previewWidth, previewHeight);
+        ctx.drawImage(mosaicPreviewSourceCanvas, -previewWidth / 2, -previewHeight / 2, previewWidth, previewHeight);
         ctx.restore();
-
-        const previewRect = mosaicLogic.scaleNaturalRectToImageData(mosaicPreviewState.cropData, imageData);
-        if (previewRect) {
-            mosaicLogic.applyMosaicToCanvas(ctx.canvas, previewRect, getMosaicBlockSize());
-        }
     }
 
     function scheduleMosaicPreviewRender() {
@@ -4850,7 +4938,7 @@
             return true;
         }
         if (shortcutAction === 'mosaic') {
-            setActiveTool('mosaic');
+            setActiveTool('mosaic', { keepCropEnabled: true });
             showMosaicModal();
             return true;
         }
@@ -4903,6 +4991,82 @@
         );
         const shortcutAction = shortcutLogic.getShortcutAction(e);
 
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            if (isZLoupeActive) {
+                setZLoupeActive(false);
+                return;
+            }
+            if (mosaicPreviewState) {
+                hideMosaicModal();
+                return;
+            }
+            if (copyModal && copyModal.style.display === 'flex') {
+                hideCopyModal();
+                return;
+            }
+            if (colorModal && colorModal.style.display === 'flex') {
+                hideColorModal();
+                return;
+            }
+            if (isColorPickerMode) {
+                isEyedropperShortcutPressed = false;
+                endColorPickerMode();
+                return;
+            }
+            if (magicWandMask) {
+                clearMagicWandMask();
+                if (cropper) {
+                    chkEnableCrop.checked = false;
+                    syncCropPresetUI();
+                    cropper.clear();
+                    syncResizeInputsToOriginal();
+                }
+                setActiveTool('cursor');
+                return;
+            }
+            if (isMagicWandMode) {
+                endMagicWandMode(true);
+                return;
+            }
+            if (isEyedropperActive && eraseTargetBounds) {
+                pushHistorySnapshot('edit.eraseSelection');
+
+                const canvas = document.createElement('canvas');
+                canvas.width = originalWidth;
+                canvas.height = originalHeight;
+                const ctx = canvas.getContext('2d');
+
+                // Draw current image
+                ctx.drawImage(imageEl, 0, 0);
+
+                // Erase target marquee selection to transparent
+                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
+
+                const newSrc = canvas.toDataURL();
+                initEditor(newSrc);
+                notifyDocumentChanged('edit.eraseSelection');
+
+                endEyedropper();
+
+                // Reset crop mode checkbox
+                chkEnableCrop.checked = false;
+                syncCropPresetUI();
+
+                vscode.postMessage({ command: 'show-toast', text: t('toast.selectionErased') });
+                return;
+            }
+            if (cropper) {
+                chkEnableCrop.checked = false;
+                syncCropPresetUI();
+                cropper.clear();
+                syncResizeInputsToOriginal();
+                applyMarqueeShape(false);
+                setActiveTool('cursor');
+            }
+            return;
+        }
+
         if (isInput) {
             // Still allow Save (Cmd+S) and Undo (Cmd+Z) inside input focus
             if (runShortcutAction(shortcutAction, { inputFocused: true })) {
@@ -4950,81 +5114,6 @@
                 if (moveCropMarqueeWithArrow(e.key, e.shiftKey)) {
                     e.preventDefault();
                 }
-            }
-            return;
-        }
-
-        // Escape: close modals, clear selection, cancel eyedropper, or uncheck crop box
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            if (isZLoupeActive) {
-                setZLoupeActive(false);
-                return;
-            }
-            if (mosaicPreviewState) {
-                hideMosaicModal();
-                return;
-            }
-            if (copyModal && copyModal.style.display === 'flex') {
-                hideCopyModal();
-                return;
-            }
-            if (colorModal && colorModal.style.display === 'flex') {
-                hideColorModal();
-                return;
-            }
-            if (isColorPickerMode) {
-                isEyedropperShortcutPressed = false;
-                endColorPickerMode();
-                return;
-            }
-            if (magicWandMask) {
-                clearMagicWandMask();
-                if (cropper) {
-                    chkEnableCrop.checked = false;
-                    syncCropPresetUI();
-                    cropper.clear();
-                    syncResizeInputsToOriginal();
-                }
-                return;
-            }
-            if (isMagicWandMode) {
-                endMagicWandMode(true);
-                return;
-            }
-            if (isEyedropperActive && eraseTargetBounds) {
-                pushHistorySnapshot('edit.eraseSelection');
-
-                const canvas = document.createElement('canvas');
-                canvas.width = originalWidth;
-                canvas.height = originalHeight;
-                const ctx = canvas.getContext('2d');
-
-                // Draw current image
-                ctx.drawImage(imageEl, 0, 0);
-
-                // Erase target marquee selection to transparent
-                ctx.clearRect(eraseTargetBounds.x, eraseTargetBounds.y, eraseTargetBounds.width, eraseTargetBounds.height);
-
-                const newSrc = canvas.toDataURL();
-                initEditor(newSrc);
-                notifyDocumentChanged('edit.eraseSelection');
-
-                endEyedropper();
-
-                // Reset crop mode checkbox
-                chkEnableCrop.checked = false;
-                syncCropPresetUI();
-
-                vscode.postMessage({ command: 'show-toast', text: t('toast.selectionErased') });
-                return;
-            }
-            if (cropper) {
-                chkEnableCrop.checked = false;
-                syncCropPresetUI();
-                cropper.clear();
-                syncResizeInputsToOriginal();
-                applyMarqueeShape(false);
             }
             return;
         }
