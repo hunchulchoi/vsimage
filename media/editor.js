@@ -1689,6 +1689,7 @@
     }
 
     if (imageContainer) {
+        imageContainer.addEventListener('click', dismissShortcutLayers, true);
         imageContainer.addEventListener('mousedown', dismissShortcutLayers, true);
     }
 

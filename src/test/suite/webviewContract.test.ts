@@ -155,6 +155,7 @@ suite('Webview contracts', () => {
         assert.ok(editor.includes('canvasScrollArea.addEventListener(\'mousedown\', () => {'));
         assert.ok(editor.includes('dismissShortcutLayers();'));
         assert.ok(editor.includes('imageContainer.addEventListener(\'mousedown\', dismissShortcutLayers, true);'));
+        assert.ok(editor.includes('imageContainer.addEventListener(\'click\', dismissShortcutLayers, true);'));
     });
 
     test('keeps crop disabled until the initial image load settles', () => {
