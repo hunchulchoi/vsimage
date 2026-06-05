@@ -11,7 +11,7 @@
 
   "toolbar.zoomOut": "축소",
   "toolbar.zoomIn": "확대",
-  "toolbar.cursor": "커서",
+  "toolbar.marqueeSelect": "마퀴 선택",
   "toolbar.rotateLeft": "왼쪽 회전",
   "toolbar.rotateRight": "오른쪽 회전",
   "toolbar.flipH": "좌우 반전",

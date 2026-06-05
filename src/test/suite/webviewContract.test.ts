@@ -121,7 +121,7 @@ suite('Webview contracts', () => {
         assert.ok(provider.includes('id="toolOptionsMosaic"'));
         assert.ok(provider.includes('id="toolOptionsMove"'));
         assert.ok(provider.includes('properties-zoom-row'));
-        assert.ok(provider.includes('toolbar.cursor'));
+        assert.ok(provider.includes('toolbar.marqueeSelect'));
         assert.ok(styles.includes('.tool-rail'));
         assert.ok(styles.includes('.tool-rail-btn.active'));
         assert.ok(styles.includes('.tool-rail-secondary'));

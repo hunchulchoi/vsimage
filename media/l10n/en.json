@@ -11,7 +11,7 @@
 
   "toolbar.zoomOut": "Zoom Out",
   "toolbar.zoomIn": "Zoom In",
-  "toolbar.cursor": "Cursor",
+  "toolbar.marqueeSelect": "Marquee Select",
   "toolbar.rotateLeft": "Rotate Left",
   "toolbar.rotateRight": "Rotate Right",
   "toolbar.flipH": "Flip Horizontal",

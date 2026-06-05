@@ -479,13 +479,13 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                     <!-- Workspace Area (grid: ruler-corner | rulerH / rulerV | scrollable canvas) -->
                     <div class="canvas-workspace" id="workspace" tabindex="-1" style="display: none; outline: none;">
                         <div class="tool-rail" id="toolRail" style="display: none;">
-                            <button type="button" class="tool-rail-btn active" id="btnToolCursor" data-tool="cursor" data-i18n-title="toolbar.cursor">
+                            <button type="button" class="tool-rail-btn active" id="btnToolCursor" data-tool="cursor" data-i18n-title="toolbar.marqueeSelect">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
                                     <rect x="4" y="4" width="12" height="12" rx="2"></rect>
                                     <path d="M14.5 14.5 20 20"></path>
                                     <path d="M17 20h3v-3"></path>
                                 </svg>
-                                <span class="tool-rail-label" data-i18n="toolbar.cursor"></span>
+                                <span class="tool-rail-label" data-i18n="toolbar.marqueeSelect"></span>
                             </button>
                             <button type="button" class="tool-rail-btn" id="btnToolCrop" data-tool="crop" data-i18n-title="shortcuts.toggleCrop">
                                 <svg class="tool-rail-icon" viewBox="0 0 24 24" aria-hidden="true">
