@@ -205,7 +205,6 @@ body, html {
     }
 }
 
-#btnMagicWand,
 .magic-wand-controls,
 .magic-wand-shortcut-row {
     display: none !important;
@@ -348,63 +347,6 @@ body, html {
     min-width: 104px;
 }
 
-/* Toolbar overlay — pinned to bottom of canvas viewport */
-.canvas-toolbar-layer {
-    position: absolute;
-    left: calc(var(--tool-rail-width) + var(--ruler-v-width));
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 30;
-    display: flex;
-    justify-content: center;
-    pointer-events: none;
-}
-
-/* Floating toolbar overlays the scroll viewport (does not scroll with image) */
-.floating-toolbar {
-    position: absolute;
-    left: 50%;
-    bottom: 20px;
-    transform: translateX(-50%);
-    pointer-events: auto;
-    background: rgba(30, 30, 30, 0.8);
-    backdrop-filter: blur(10px);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    display: flex;
-    gap: 4px;
-    padding: 6px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.toolbar-drag-handle {
-    appearance: none;
-    border: 1px solid rgba(77, 163, 224, 0.45);
-    background: rgba(0, 122, 204, 0.16);
-    color: var(--btn-bg, #4da3e0);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    min-width: 30px;
-    padding: 0;
-    margin: 0 4px 0 0;
-    border-radius: 6px;
-    cursor: move;
-    touch-action: none;
-    user-select: none;
-    pointer-events: auto;
-    flex: 0 0 30px;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-}
-
-.toolbar-drag-handle:hover {
-    background: rgba(0, 122, 204, 0.28);
-    border-color: rgba(77, 163, 224, 0.7);
-}
-
-.toolbar-drag-icon,
 .zoom-loupe-drag-icon {
     width: 16px;
     height: 16px;
@@ -976,15 +918,6 @@ body.show-shortcut-hints [data-shortcut] .ui-shortcut-badge {
     align-items: center;
     justify-content: center;
     user-select: none;
-}
-
-/* Toolbar Divider */
-.tb-divider {
-    width: 1px;
-    background-color: rgba(255, 255, 255, 0.15);
-    height: 20px;
-    align-self: center;
-    margin: 0 6px;
 }
 
 /* Disabled secondary button styling */

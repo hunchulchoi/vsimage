@@ -270,7 +270,7 @@ suite('Webview contracts', () => {
     });
 
     test('hides the magic wand UI while leaving the feature wiring dormant', () => {
-        assert.ok(styles.includes('#btnMagicWand'));
+        assert.ok(!provider.includes('id="btnMagicWand"'));
         assert.ok(styles.includes('.magic-wand-controls'));
         assert.ok(styles.includes('.magic-wand-shortcut-row'));
         assert.ok(styles.includes('display: none !important;'));

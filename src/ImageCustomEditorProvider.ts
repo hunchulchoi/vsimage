@@ -584,17 +584,6 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                             <span class="zoom-loupe-label" data-i18n="zoomLoupe.label"></span>
                             <canvas id="zoomLoupeCanvas" width="200" height="200"></canvas>
                         </div>
-                        <div class="canvas-toolbar-layer">
-                            <div class="floating-toolbar" id="toolbar" style="display: none;">
-                                <button type="button" id="toolbarDragHandle" class="toolbar-drag-handle" aria-label="Move toolbar">
-                                    <svg class="toolbar-drag-icon" viewBox="0 0 16 16" aria-hidden="true">
-                                        <path d="M8 1v4M8 11v4M1 8h4M11 8h4M6.5 2.5 8 1l1.5 1.5M9.5 14.5 8 13l-1.5 1.5M2.5 6.5 1 8l1.5 1.5M14.5 9.5 13 8l1.5-1.5" />
-                                    </svg>
-                                </button>
-                                <div class="tb-divider"></div>
-                                <button class="tb-btn" id="btnMagicWand" data-shortcut="W" data-i18n-title="toolbar.magicWand">🪄<span class="ui-shortcut-badge"></span></button>
-                            </div>
-                        </div>
                     </div>
 
                     <!-- Control Panel -->
