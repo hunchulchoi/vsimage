@@ -58,6 +58,10 @@ function getShortcutAction(event) {
     return null;
 }
 
+function canRunWhenInputFocused(action) {
+    return action === 'save' || action === 'undo' || action === 'copy';
+}
+
 function isPanHoldCode(code) {
     return code === 'Space' || code === 'KeyH';
 }
@@ -68,6 +72,7 @@ function isEyedropperHoldCode(code) {
 
 const api = {
     getShortcutAction,
+    canRunWhenInputFocused,
     isPanHoldCode,
     isEyedropperHoldCode
 };

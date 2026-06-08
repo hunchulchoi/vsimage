@@ -49,6 +49,10 @@ function hasValidCropBox(cropData) {
         && Number(cropData.height) > 0;
 }
 
+function resolveMarqueeKeyboardStep(shiftKey) {
+    return shiftKey ? 10 : 1;
+}
+
 function resolveModifierMarqueeBox(state) {
     if (!state || !state.startPoint || !state.currentPoint) {
         return null;
@@ -259,6 +263,7 @@ const api = {
     fullImageCropBounds,
     isMarqueeFullImageNatural,
     isPointInCropSelection,
+    resolveMarqueeKeyboardStep,
     resolveModifierMarqueeBox,
     resolveDragMarqueeBox,
     getMarqueeDblClickToggleAction,

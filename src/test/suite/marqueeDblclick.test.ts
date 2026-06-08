@@ -57,6 +57,7 @@ const logic = require(path.join(__dirname, '../../../../media/cropMarqueeLogic.j
         crop: { x: number; y: number; width: number; height: number } | null
     ) => boolean;
     shouldAutoEnableMarqueeOnDrag: (state: Record<string, boolean>) => boolean;
+    resolveMarqueeKeyboardStep: (shiftKey?: boolean) => number;
 };
 
 suite('Marquee double-click logic', () => {
@@ -271,5 +272,11 @@ suite('Marquee double-click logic', () => {
             }),
             false
         );
+    });
+
+    test('resolveMarqueeKeyboardStep uses 10px with shift and 1px otherwise', () => {
+        assert.strictEqual(logic.resolveMarqueeKeyboardStep(false), 1);
+        assert.strictEqual(logic.resolveMarqueeKeyboardStep(true), 10);
+        assert.strictEqual(logic.resolveMarqueeKeyboardStep(), 1);
     });
 });

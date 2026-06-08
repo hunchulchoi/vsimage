@@ -15,6 +15,11 @@ interface PendingImageRequest {
     reject: (reason?: unknown) => void;
 }
 
+interface ClipboardImagePayload {
+    bytes: Uint8Array;
+    mimeType: string;
+}
+
 export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new ImageCustomEditorProvider(context);
@@ -29,9 +34,23 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
     readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
     private readonly webviews = new Map<string, vscode.WebviewPanel>();
+    private readonly readyWebviews = new Map<string, boolean>();
+    private readonly pendingShortcuts = new Map<string, string[]>();
     private readonly pendingImageRequests = new Map<number, PendingImageRequest>();
     private nextRequestId = 0;
     private untitledCounter = 0;
+    private readonly debugState = {
+        editorReadyCount: 0,
+        copyImageMessageCount: 0,
+        copyFunctionEnterCount: 0,
+        hostClipboardRequestCount: 0,
+        shortcutDispatchCount: 0,
+        shortcutAckCount: 0,
+        showToastCount: 0,
+        lastToastText: '',
+        lastShortcutAction: '',
+        lastShortcutDocumentKey: ''
+    };
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -120,9 +139,12 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
     ): Promise<void> {
         const documentKey = document.uri.toString();
         this.webviews.set(documentKey, webviewPanel);
+        this.readyWebviews.set(documentKey, false);
 
         webviewPanel.onDidDispose(() => {
             this.webviews.delete(documentKey);
+            this.readyWebviews.delete(documentKey);
+            this.pendingShortcuts.delete(documentKey);
         });
 
         const isUntitled = this.isUntitledDocument(document);
@@ -166,13 +188,31 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                 case 'image-data-response':
                     this.resolveImageDataRequest(message.requestId, message.arrayBuffer, message.mimeType);
                     return;
+                case 'editor-ready':
+                    this.debugState.editorReadyCount += 1;
+                    this.readyWebviews.set(documentKey, true);
+                    await this.flushPendingShortcuts(documentKey, webviewPanel);
+                    return;
                 case 'copy-image':
-                    await this.copyImageToClipboard(message.arrayBuffer, message.mimeType, message.successText);
+                    this.debugState.copyImageMessageCount += 1;
+                    await this.copyImageMessageToClipboard(message, message.successText);
+                    return;
+                case 'copy-function-enter':
+                    this.debugState.copyFunctionEnterCount += 1;
+                    return;
+                case 'host-clipboard-request':
+                    this.debugState.hostClipboardRequestCount += 1;
+                    return;
+                case 'shortcut-ack':
+                    this.debugState.shortcutAckCount += 1;
+                    this.debugState.lastShortcutAction = String(message.action ?? '');
                     return;
                 case 'undo-request':
                     await vscode.commands.executeCommand('undo');
                     return;
                 case 'show-toast':
+                    this.debugState.showToastCount += 1;
+                    this.debugState.lastToastText = String(message.text ?? '');
                     vscode.window.showInformationMessage(message.text);
                     return;
             }
@@ -407,8 +447,95 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
         });
     }
 
+    private extensionForClipboardMimeType(mimeType: string): string {
+        switch (mimeType) {
+            case 'image/jpeg':
+                return 'jpg';
+            case 'image/webp':
+                return 'webp';
+            default:
+                return 'png';
+        }
+    }
+
+    private buildMacClipboardSwiftScript(imagePath: string): string {
+        return [
+            'import AppKit',
+            'import Foundation',
+            `let imageUrl = URL(fileURLWithPath: ${JSON.stringify(imagePath)})`,
+            'guard let image = NSImage(contentsOf: imageUrl) else {',
+            '    fputs("image-load-failed\\n", stderr)',
+            '    exit(1)',
+            '}',
+            'let pasteboard = NSPasteboard.general',
+            'pasteboard.clearContents()',
+            'guard pasteboard.writeObjects([image]) else {',
+            '    fputs("pasteboard-write-failed\\n", stderr)',
+            '    exit(1)',
+            '}'
+        ].join('\n');
+    }
+
+    private buildMacClipboardAppleScript(imagePath: string): string {
+        const escapedPath = imagePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `set the clipboard to (read (POSIX file "${escapedPath}") as TIFF picture)`;
+    }
+
+    private parseClipboardDataUrl(dataUrl: unknown): ClipboardImagePayload | undefined {
+        if (typeof dataUrl !== 'string') {
+            return undefined;
+        }
+
+        const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+        if (!match) {
+            return undefined;
+        }
+
+        return {
+            mimeType: match[1],
+            bytes: Uint8Array.from(Buffer.from(match[2], 'base64'))
+        };
+    }
+
+    private resolveClipboardPayload(arrayBuffer: unknown, mimeType: unknown, dataUrl?: unknown): ClipboardImagePayload | undefined {
+        const parsedDataUrl = this.parseClipboardDataUrl(dataUrl);
+        if (parsedDataUrl) {
+            return parsedDataUrl;
+        }
+
+        if (!arrayBuffer || typeof (arrayBuffer as ArrayBuffer).byteLength !== 'number' || typeof mimeType !== 'string') {
+            return undefined;
+        }
+
+        return {
+            mimeType,
+            bytes: new Uint8Array(arrayBuffer as ArrayBuffer)
+        };
+    }
+
+    private async copyImageMessageToClipboard(
+        message: { arrayBuffer?: unknown; mimeType?: unknown; dataUrl?: unknown },
+        successText: string | undefined
+    ): Promise<void> {
+        const payload = this.resolveClipboardPayload(message.arrayBuffer, message.mimeType, message.dataUrl);
+        if (!payload) {
+            vscode.window.showErrorMessage(translate(this.webviewL10n(), 'toast.clipboardUnavailable'));
+            return;
+        }
+
+        await this.copyImageToClipboard(payload.bytes.buffer, payload.mimeType, successText);
+    }
+
+    private async copyTiffToMacClipboard(tiffPath: string): Promise<void> {
+        try {
+            await this.execFileAsync('swift', ['-e', this.buildMacClipboardSwiftScript(tiffPath)]);
+        } catch (swiftError) {
+            await this.execFileAsync('osascript', ['-e', this.buildMacClipboardAppleScript(tiffPath)]);
+        }
+    }
+
     private async copyImageToClipboard(
-        arrayBuffer: ArrayBuffer | null | undefined,
+        arrayBuffer: ArrayBufferLike | null | undefined,
         mimeType: string,
         successText?: string
     ): Promise<void> {
@@ -422,7 +549,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
             return;
         }
 
-        const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+        const extension = this.extensionForClipboardMimeType(mimeType);
         const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const sourcePath = path.join(os.tmpdir(), `vsimage-copy-${id}.${extension}`);
         const tiffPath = path.join(os.tmpdir(), `vsimage-copy-${id}.tiff`);
@@ -430,11 +557,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
         try {
             await fs.promises.writeFile(sourcePath, Buffer.from(new Uint8Array(arrayBuffer)));
             await this.execFileAsync('sips', ['-s', 'format', 'tiff', sourcePath, '--out', tiffPath]);
-            const escapedPath = tiffPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-            await this.execFileAsync('osascript', [
-                '-e',
-                `set the clipboard to (read (POSIX file "${escapedPath}") as TIFF picture)`
-            ]);
+            await this.copyTiffToMacClipboard(tiffPath);
             vscode.window.showInformationMessage(successText || translate(this.webviewL10n(), 'toast.imageCopied'));
         } catch (error) {
             vscode.window.showErrorMessage(
@@ -506,10 +629,52 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
         return input?.uri;
     }
 
+    private async postShortcutToPanel(panel: vscode.WebviewPanel, action: string): Promise<void> {
+        this.debugState.shortcutDispatchCount += 1;
+        await panel.webview.postMessage({ command: 'run-shortcut', action });
+    }
+
+    private async flushPendingShortcuts(documentKey: string, panel: vscode.WebviewPanel): Promise<void> {
+        const pending = this.pendingShortcuts.get(documentKey);
+        if (!pending?.length) {
+            return;
+        }
+        this.pendingShortcuts.delete(documentKey);
+        for (const action of pending) {
+            await this.postShortcutToPanel(panel, action);
+        }
+    }
+
     public async runShortcut(action: string): Promise<void> {
-        const panel = Array.from(this.webviews.values()).find(candidate => candidate.active)
-            ?? Array.from(this.webviews.values()).find(candidate => candidate.visible);
-        await panel?.webview.postMessage({ command: 'run-shortcut', action });
+        const activeUri = this.getActiveTabUri();
+        const activeKey = activeUri?.toString();
+        const entry = (activeKey && this.webviews.has(activeKey))
+            ? [activeKey, this.webviews.get(activeKey)!] as const
+            : Array.from(this.webviews.entries()).find(([, candidate]) => candidate.active)
+                ?? Array.from(this.webviews.entries()).find(([, candidate]) => candidate.visible);
+        if (!entry) {
+            return;
+        }
+
+        const [documentKey, panel] = entry;
+        this.debugState.lastShortcutAction = action;
+        this.debugState.lastShortcutDocumentKey = documentKey;
+        if (!this.readyWebviews.get(documentKey)) {
+            const pending = this.pendingShortcuts.get(documentKey) ?? [];
+            pending.push(action);
+            this.pendingShortcuts.set(documentKey, pending);
+            return;
+        }
+
+        await this.postShortcutToPanel(panel, action);
+    }
+
+    public getDebugState() {
+        return {
+            ...this.debugState,
+            webviewCount: this.webviews.size,
+            readyWebviewCount: Array.from(this.readyWebviews.values()).filter(Boolean).length
+        };
     }
 
     private getHtmlForWebview(
@@ -540,6 +705,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
         const loupeLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'loupeLogic.js')));
         const sidebarAutoCollapseLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'sidebarAutoCollapseLogic.js')));
         const toolRailLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'toolRailLogic.js')));
+        const iconUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'icon.jpg')));
         const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'editor.js')));
         const styleUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'editor.css')));
         const cropperJsUri = webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, 'media', 'cropper.min.js')));
@@ -559,11 +725,17 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                 <link href="${cropperCssUri}" rel="stylesheet">
                 <link href="${styleUri}" rel="stylesheet">
             </head>
-            <body data-document-editor="${isDocumentEditor ? 'true' : 'false'}" data-lang="${lang}" data-l10n-en="${l10nEnUri}" data-l10n-ko="${l10nKoUri}" data-initial-file-size-bytes="${safeInitialFileSizeBytes}"${untitledFilenameAttr}>
+            <body data-document-editor="${isDocumentEditor ? 'true' : 'false'}" data-host-platform="${process.platform}" data-lang="${lang}" data-l10n-en="${l10nEnUri}" data-l10n-ko="${l10nKoUri}" data-initial-file-size-bytes="${safeInitialFileSizeBytes}"${untitledFilenameAttr}>
+                <div id="webviewLoadingOverlay" class="webview-loading-overlay">
+                    <div class="webview-loading-card">
+                        <div class="webview-loading-spinner" aria-hidden="true"></div>
+                        <div class="webview-loading-text" data-i18n="dashboard.loading"></div>
+                    </div>
+                </div>
                 <div class="editor-wrapper">
                     <!-- Landing Dashboard Empty State -->
                     <div class="dashboard-empty" id="dashboard" style="display: none;">
-                        <div style="font-size: 3rem; margin-bottom: 12px;">🖼️</div>
+                        <img class="dashboard-brand-icon" src="${iconUri}" alt="" data-i18n-alt="dashboard.brandAlt">
                         <h2 style="margin: 0 0 10px 0;" data-i18n="dashboard.title"></h2>
                         <p style="color: #aaa; margin-bottom: 20px; max-width: 400px; font-size: 0.9rem;" data-i18n="dashboard.description"></p>
                         <div class="empty-card-container">
@@ -895,20 +1067,36 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                 <div id="shortcutHintTooltip" class="shortcut-hint-tooltip" style="display: none;"></div>
                 <div id="toolRailTooltip" class="tool-rail-tooltip" style="display: none;"></div>
 
-                <div id="marqueeShortcutTooltip" class="marquee-shortcut-tooltip" style="display: none;">
+                    <div id="marqueeShortcutTooltip" class="marquee-shortcut-tooltip" style="display: none;">
+                        <div class="marquee-shortcut-tooltip-row">
+                            <span class="marquee-shortcut-key">Del / Bksp</span>
+                            <span class="marquee-shortcut-desc" data-i18n="shortcuts.eraseSelection"></span>
+                        </div>
                     <div class="marquee-shortcut-tooltip-row">
-                        <span class="marquee-shortcut-key">Del / Bksp</span>
-                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.eraseSelection"></span>
+                        <span class="marquee-shortcut-key">[ / ]</span>
+                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.marqueeResize"></span>
                     </div>
                     <div class="marquee-shortcut-tooltip-row">
-                        <span class="marquee-shortcut-key">X</span>
-                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.mosaicSelection"></span>
+                        <span class="marquee-shortcut-key">Shift + [ / ]</span>
+                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.marqueeResizeLarge"></span>
+                    </div>
+                        <div class="marquee-shortcut-tooltip-row">
+                            <span class="marquee-shortcut-key">X</span>
+                            <span class="marquee-shortcut-desc" data-i18n="shortcuts.mosaicSelection"></span>
+                        </div>
+                    <div class="marquee-shortcut-tooltip-row">
+                        <span class="marquee-shortcut-key">↑ ↓ ← →</span>
+                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.moveMarquee"></span>
                     </div>
                     <div class="marquee-shortcut-tooltip-row">
-                        <span class="marquee-shortcut-key">Esc</span>
-                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.cancel"></span>
+                        <span class="marquee-shortcut-key">Shift + ↑ ↓ ← →</span>
+                        <span class="marquee-shortcut-desc" data-i18n="shortcuts.moveMarqueeLarge"></span>
                     </div>
-                </div>
+                        <div class="marquee-shortcut-tooltip-row">
+                            <span class="marquee-shortcut-key">Esc</span>
+                            <span class="marquee-shortcut-desc" data-i18n="shortcuts.cancel"></span>
+                        </div>
+                    </div>
 
                 <!-- Floating Eyedropper Tooltip -->
                 <div id="eyedropperTooltip" class="eyedropper-tooltip" style="display: none;" data-i18n="eyedropper.tooltip"></div>
@@ -985,6 +1173,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         <div class="shortcut-row"><span class="shortcut-key">+</span><span class="shortcut-desc" data-i18n="shortcuts.zoomIn"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">−</span><span class="shortcut-desc" data-i18n="shortcuts.zoomOut"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">[ / ]</span><span class="shortcut-desc" data-i18n="shortcuts.marqueeResize"></span></div>
+                        <div class="shortcut-row"><span class="shortcut-key">Shift + [ / ]</span><span class="shortcut-desc" data-i18n="shortcuts.marqueeResizeLarge"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">R / Shift + R</span><span class="shortcut-desc" data-i18n="shortcuts.rotate"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">Enter</span><span class="shortcut-desc" data-i18n="shortcuts.applyCrop"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">X</span><span class="shortcut-desc" data-i18n="shortcuts.mosaicSelection"></span></div>
@@ -992,6 +1181,7 @@ export class ImageCustomEditorProvider implements vscode.CustomEditorProvider {
                         <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc" data-i18n="shortcuts.cancel"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">I + Click</span><span class="shortcut-desc" data-i18n="shortcuts.pickColor"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">↑ ↓ ← →</span><span class="shortcut-desc" data-i18n="shortcuts.moveMarquee"></span></div>
+                        <div class="shortcut-row"><span class="shortcut-key">Shift + ↑ ↓ ← →</span><span class="shortcut-desc" data-i18n="shortcuts.moveMarqueeLarge"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-desc" data-i18n="shortcuts.marqueeSelect"></span></div>
                         <div class="shortcut-row"><span class="shortcut-key">C</span><span class="shortcut-desc" data-i18n="shortcuts.toggleCrop"></span></div>
                         <div class="shortcut-row magic-wand-shortcut-row"><span class="shortcut-key">W + Click</span><span class="shortcut-desc" data-i18n="shortcuts.magicWand"></span></div>

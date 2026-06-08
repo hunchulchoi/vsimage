@@ -11,6 +11,7 @@ const shortcuts = require(path.join(__dirname, '../../../../media/shortcutLogic.
         shiftKey?: boolean;
         altKey?: boolean;
     }) => string | null;
+    canRunWhenInputFocused: (action: string | null) => boolean;
     isPanHoldCode: (code: string) => boolean;
     isEyedropperHoldCode: (code: string) => boolean;
 };
@@ -57,6 +58,19 @@ suite('Photoshop-style shortcuts', () => {
         assert.strictEqual(shortcuts.getShortcutAction({ key: 'ㅌ', code: 'KeyX' }), 'mosaic');
         assert.strictEqual(shortcuts.getShortcutAction({ key: 'ㄱ', code: 'KeyR' }), 'rotateRight');
         assert.strictEqual(shortcuts.getShortcutAction({ key: 'ㄱ', code: 'KeyR', shiftKey: true }), 'rotateLeft');
+    });
+
+    test('allows image copy even when an editor input keeps focus', () => {
+        assert.strictEqual(shortcuts.canRunWhenInputFocused('save'), true);
+        assert.strictEqual(shortcuts.canRunWhenInputFocused('undo'), true);
+        assert.strictEqual(shortcuts.canRunWhenInputFocused('copy'), true);
+        assert.strictEqual(shortcuts.canRunWhenInputFocused('selectAll'), false);
+        assert.strictEqual(shortcuts.canRunWhenInputFocused(null), false);
+    });
+
+    test('preserves physical bracket codes when shift changes key output', () => {
+        assert.strictEqual(shortcuts.getShortcutAction({ key: '{', code: 'BracketLeft', shiftKey: true }), null);
+        assert.strictEqual(shortcuts.getShortcutAction({ key: '}', code: 'BracketRight', shiftKey: true }), null);
     });
 
     test('uses H or Space for hand pan and I for eyedropper', () => {

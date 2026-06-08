@@ -23,6 +23,57 @@ body, html {
     overflow: hidden;
 }
 
+.webview-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(12, 12, 12, 0.58);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: opacity 160ms ease;
+}
+
+.webview-loading-overlay.is-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.webview-loading-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    min-width: 180px;
+    padding: 18px 22px;
+    border-radius: 14px;
+    background: rgba(28, 28, 28, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.38);
+}
+
+.webview-loading-spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.16);
+    border-top-color: var(--vscode-button-background, #007acc);
+    animation: webview-loading-spin 0.8s linear infinite;
+}
+
+.webview-loading-text {
+    color: var(--vscode-editor-foreground, #cccccc);
+    font-size: 0.85rem;
+}
+
+@keyframes webview-loading-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .editor-wrapper {
     display: flex;
     width: 100%;
@@ -31,12 +82,21 @@ body, html {
     overflow: hidden;
 }
 
+.dashboard-brand-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 12px;
+    border-radius: 14px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    object-fit: cover;
+}
+
 /* ── Canvas workspace: CSS grid shell ──────────────────────────────────── */
 /* Layout: [corner][rulerH] / [rulerV][scrollable canvas]                    */
 :root {
     --ruler-size: 20px;
     --tool-rail-width: 56px;
-    --ruler-v-width: 44px;
+    --ruler-v-width: 20px;
 }
 
 .canvas-workspace {
@@ -83,6 +143,14 @@ body, html {
 .image-container {
     position: relative;
     flex-shrink: 0;
+    background-color: #2f2f2f;
+    background-image:
+        linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    background-size: 16px 16px;
 }
 
 /* Visible image bounds on transparent checkerboard (dual-tone edge) */

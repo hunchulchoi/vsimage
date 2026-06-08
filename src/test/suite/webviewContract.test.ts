@@ -86,32 +86,87 @@ suite('Webview contracts', () => {
     });
 
     test('guards image clipboard writes and always routes copy outcomes through toasts', () => {
-        assert.ok(editor.includes("function copyImageToClipboard() {\n        if (!cropper) {\n            vscode.postMessage({ command: 'show-toast', text: t('toast.noImageCopy') });"));
+        assert.ok(editor.includes('function copyImageToClipboard() {'));
+        assert.ok(editor.includes("vscode.postMessage({ command: 'copy-function-enter' });"));
+        assert.ok(editor.includes("if (!cropper) {\n            vscode.postMessage({ command: 'show-toast', text: t('toast.noImageCopy') });"));
         assert.ok(editor.includes('performCopyToClipboard(format, qualityPercent, selectionOnly);'));
         assert.ok(!editor.includes("function copyImageToClipboard() {\n        if (!cropper) {\n            return;\n        }\n        showCopyModal();"));
         assert.ok(editor.includes('const clipboard = navigator.clipboard;'));
         assert.ok(editor.includes('const ClipboardItemCtor = window.ClipboardItem;'));
-        assert.ok(editor.includes("if (!clipboardLogic.canWriteClipboardImage(clipboard && clipboard.write, ClipboardItemCtor)) {"));
-        assert.ok(provider.includes("translate(this.webviewL10n(), 'toast.clipboardUnavailable')"));
-        assert.ok(editor.includes('try {'));
         assert.ok(editor.includes('clipboard.write(['));
         assert.ok(editor.includes('new ClipboardItemCtor({'));
-        assert.ok(editor.includes('requestHostClipboardCopy(blob, toastText);'));
+        assert.ok(editor.includes('if (usesMacShortcuts()) {'));
+        assert.ok(provider.includes("translate(this.webviewL10n(), 'toast.clipboardUnavailable')"));
+        assert.ok(editor.includes('try {'));
+        assert.ok(editor.includes('requestHostClipboardCopyDataUrl(dataUrl, toastText);'));
         assert.ok(editor.includes("command: 'copy-image'"));
+        assert.ok(editor.includes('dataUrl,'));
         assert.ok(provider.includes("case 'copy-image':"));
-        assert.ok(provider.includes('copyImageToClipboard(message.arrayBuffer, message.mimeType, message.successText)'));
+        assert.ok(provider.includes('copyImageMessageToClipboard(message, message.successText)'));
+        assert.ok(provider.includes('parseClipboardDataUrl'));
         assert.ok(provider.includes("this.execFileAsync('sips'"));
+        assert.ok(provider.includes("this.execFileAsync('swift'"));
+        assert.ok(provider.includes('NSPasteboard.general'));
+        assert.ok(provider.includes('writeObjects([image])'));
         assert.ok(provider.includes("this.execFileAsync('osascript'"));
+        assert.ok(provider.includes('buildMacClipboardAppleScript'));
+        assert.ok(provider.includes('catch (swiftError)'));
         assert.ok(editor.includes("t('toast.imageCopiedAs'"));
         assert.ok(editor.includes("t('toast.imageCopiedSelection'"));
         assert.ok(editor.includes("t('toast.clipboardFailed', { error: String(err) })"));
         assert.ok(editor.includes('} catch (err) {'));
     });
 
+    test('handles browser copy events directly so marquee copy still runs when keybindings are skipped', () => {
+        assert.ok(editor.includes("document.addEventListener('copy', (e) => {"));
+        assert.ok(editor.includes('shouldLetNativeTextCopyProceed(activeEl)'));
+        assert.ok(editor.includes('e.preventDefault();'));
+        assert.ok(editor.includes('copyImageToClipboard();'));
+    });
+
     test('shows the extension version next to the properties title', () => {
         assert.ok(provider.includes('section-title-with-version'));
         assert.ok(provider.includes('section-title-version'));
         assert.ok(provider.includes("path.join(this.context.extensionPath, 'package.json')"));
+    });
+
+    test('uses the vsimage icon in the empty dashboard hero', () => {
+        assert.ok(provider.includes('iconUri'));
+        assert.ok(provider.includes("path.join(this.context.extensionPath, 'media', 'icon.jpg')"));
+        assert.ok(provider.includes('dashboard-brand-icon'));
+        assert.ok(provider.includes('data-i18n-alt="dashboard.brandAlt"'));
+        assert.ok(styles.includes('.dashboard-brand-icon'));
+        assert.ok(editor.includes("scope.querySelectorAll('[data-i18n-alt]').forEach((el) => {"));
+    });
+
+    test('shows checkerboard only behind the image area while keeping outer canvas solid', () => {
+        assert.ok(styles.includes('.canvas-scroll-area {'));
+        assert.ok(styles.includes('background-color: #383838;'));
+        assert.ok(styles.includes('.image-container {'));
+        assert.ok(styles.includes('background-color: #2f2f2f;'));
+        assert.ok(styles.includes('linear-gradient(45deg'));
+        assert.ok(styles.includes('background-size: 16px 16px;'));
+    });
+
+    test('shows a loading spinner while the webview bootstraps and images initialize', () => {
+        assert.ok(provider.includes('webviewLoadingOverlay'));
+        assert.ok(provider.includes('webview-loading-spinner'));
+        assert.ok(provider.includes('dashboard.loading'));
+        assert.ok(styles.includes('.webview-loading-overlay'));
+        assert.ok(styles.includes('.webview-loading-spinner'));
+        assert.ok(editor.includes('function setLoadingState(isLoading) {'));
+        assert.ok(editor.includes('setLoadingState(true);'));
+        assert.ok(editor.includes('setLoadingState(false);'));
+    });
+
+    test('queues pasted images that arrive before bootstrap finishes', () => {
+        assert.ok(editor.includes('let pendingStartupFile = null;'));
+        assert.ok(editor.includes('let isBootstrapComplete = false;'));
+        assert.ok(editor.includes('function queueStartupFile(file) {'));
+        assert.ok(editor.includes('function flushPendingStartupFile() {'));
+        assert.ok(editor.includes('if (!isBootstrapComplete) {'));
+        assert.ok(editor.includes('pendingStartupFile = file;'));
+        assert.ok(editor.includes('flushPendingStartupFile();'));
     });
 
     test('keeps properties and save sticky while placing history near the top', () => {
@@ -221,6 +276,10 @@ suite('Webview contracts', () => {
         assert.ok(provider.includes('shortcuts.eraseSelection'));
         assert.ok(provider.includes('shortcuts.mosaicSelection'));
         assert.ok(provider.includes('shortcuts.cancel'));
+        assert.ok(provider.includes('shortcuts.marqueeResize'));
+        assert.ok(provider.includes('shortcuts.moveMarquee'));
+        assert.ok(provider.includes('Shift + [ / ]'));
+        assert.ok(provider.includes('Shift + ↑ ↓ ← →'));
         assert.ok(styles.includes('.marquee-shortcut-tooltip'));
         assert.ok(styles.includes('.marquee-shortcut-tooltip-row'));
         assert.ok(editor.includes('showMarqueeShortcutTooltip'));
@@ -436,5 +495,21 @@ suite('Webview contracts', () => {
         assert.ok(editor.includes("case 'run-shortcut':"));
         assert.ok(editor.includes('runShortcutAction(message.action)'));
         assert.ok(editor.includes('toggleMarqueeModeWithKey()'));
+    });
+
+    test('queues host shortcuts until the webview reports that the editor is ready', () => {
+        assert.ok(editor.includes("vscode.postMessage({ command: 'editor-ready' });"));
+        assert.ok(provider.includes("case 'editor-ready':"));
+        assert.ok(provider.includes('const activeUri = this.getActiveTabUri();'));
+        assert.ok(provider.includes('data-host-platform="${process.platform}"'));
+        assert.ok(provider.includes('private readonly readyWebviews = new Map<string, boolean>();'));
+        assert.ok(provider.includes('private readonly pendingShortcuts = new Map<string, string[]>();'));
+        assert.ok(provider.includes('flushPendingShortcuts'));
+        assert.ok(editor.includes("const hostPlatform = document.body && document.body.dataset ? document.body.dataset.hostPlatform : '';"));
+    });
+
+    test('handles shifted bracket marquee resize using physical key codes', () => {
+        assert.ok(editor.includes("e.code === 'BracketLeft'"));
+        assert.ok(editor.includes("e.code === 'BracketRight'"));
     });
 });
