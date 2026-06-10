@@ -128,15 +128,6 @@ suite('VS Code Image Editor Integration Suite', () => {
     test('activates selection move tool after marquee without resetting crop', async function () {
         this.timeout(15000);
 
-        const fileUri = vscode.Uri.file(path.join(os.tmpdir(), `vsimage-move-tool-${Date.now()}.png`));
-        const png8x8 = Uint8Array.from(Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAAD0e+o0AAAAGElEQVQYV2NkYGD4z0AEYBxVSFUAAG3UBf5J8Zt8AAAAAElFTkSuQmCC',
-            'base64'
-        ));
-
-        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-        await vscode.workspace.fs.writeFile(fileUri, png8x8);
-        await vscode.commands.executeCommand('vscode.openWith', fileUri, 'vsimage.editor');
         await waitForDebugState<{
             webviewCount: number;
             readyWebviewCount: number;
